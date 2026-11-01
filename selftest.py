@@ -20,6 +20,14 @@ import tempfile
 import time
 import tkinter as tk
 
+# 控制台编码兜底：英文版 Windows / CI runner 默认 cp1252，print 中文会直接
+# UnicodeEncodeError 崩掉，这里统一切到 UTF-8 并允许替换不可编码字符
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:      # 老版本或已被重定向的流
+        pass
+
 # 自检不能碰用户真实配置：把配置目录指到临时目录，跑完即丢
 os.environ.setdefault("STM32HOST_CONFIG_DIR",
                       tempfile.mkdtemp(prefix="stm32host_selftest_"))
