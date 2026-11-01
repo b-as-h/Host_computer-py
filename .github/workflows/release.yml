@@ -36,8 +36,10 @@ jobs:
           $out = & python selftest.py 2>&1 | Out-String
           Write-Host $out
           if ($LASTEXITCODE -ne 0) {
-            $tail = ($out -split "`n" | Select-Object -Last 25) -join "%0A"
-            Write-Host "::error title=selftest 失败::$tail"
+            # 注解只显示首行，这里把多行压成一行，方便直接看到异常类型与位置
+            $flat = ($out -split "`r?`n" | Where-Object { $_.Trim() }) -join " | "
+            if ($flat.Length -gt 900) { $flat = $flat.Substring(0, 900) }
+            Write-Host "::error title=selftest 失败::$flat"
             exit 1
           }
 
