@@ -43,7 +43,12 @@ VersionInfoProductName={#MyAppName}
 VersionInfoProductVersion={#MyAppVersion}
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+; 官方 Inno Setup 安装包不保证自带简体中文，CI 上按 compiler:Languages 找会直接失败。
+; 这里改为引用仓库内的语言包（来自 jrsoftware/issrc 的 Files/Languages），
+; 缺失时自动退回英文向导而不是编译报错。
+#if FileExists(AddBackslash(SourcePath) + "ChineseSimplified.isl")
+Name: "chinesesimplified"; MessagesFile: "{#SourcePath}\ChineseSimplified.isl"
+#endif
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
