@@ -70,10 +70,19 @@ jobs:
                                   -ErrorAction SilentlyContinue |
                     Select-Object -First 1 -ExpandProperty FullName
           }
-          if (-not $iscc) { throw "找不到 ISCC.exe" }
-          Write-Host "使用 $iscc"
-          & $iscc /Qp "installer\STM32Host.iss"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not $iscc) {
+            Write-Host "::error title=找不到 ISCC::choco 安装的 Inno Setup 未进入 PATH"
+            exit 1
+          }
+          Write-Host "ISCC: $iscc"
+          $out = & $iscc /Qp "installer\STM32Host.iss" 2>&1 | Out-String
+          Write-Host $out
+          if ($LASTEXITCODE -ne 0) {
+            $flat = ($out -split "`r?`n" | Where-Object { $_.Trim() }) -join " | "
+            if ($flat.Length -gt 900) { $flat = $flat.Substring(0, 900) }
+            Write-Host "::error title=ISCC 编译失败::$flat"
+            exit 1
+          }
 
       - name: 生成校验文件并检查产物
         shell: pwsh
