@@ -142,6 +142,21 @@ pyinstaller --noconfirm --clean --onefile --windowed --icon app.ico ^
   --collect-all serial --name STM32Host host_monitor.py
 ```
 
+### 自动发布（推荐）
+
+推一个 `v*` 标签，GitHub Actions 会在 `windows-latest` 上自动完成「自检 → 打包 exe → 编译安装包 →
+挂到 Release」，不需要本地装 Python 或 Inno Setup：
+
+```bat
+git tag v1.10.0
+git push origin v1.10.0
+```
+
+工作流文件：`.github/workflows/release.yml`。推送到 `main` 时只构建并存 14 天产物（不发布），
+所以改完代码可以先看 Actions 是否绿，再决定打标签。产物附带 `SHA256SUMS.txt`。
+
+> 本机手动构建仍然可用（见上），只是需要自己装 Inno Setup 7。
+
 **工具选择**：PyInstaller 负责把 Python 程序和运行时打成单文件 exe；Inno Setup 7 负责安装层。
 相比 ZIP 或自解压包，Inno Setup 能生成标准 Windows 安装向导、开始菜单/桌面快捷方式、
 “应用和功能”卸载项和版本信息，并且默认按当前用户安装，不触发 UAC。

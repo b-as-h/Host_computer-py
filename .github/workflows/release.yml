@@ -1,0 +1,134 @@
+name: 构建与发布
+
+# 推送到 main：只构建 + 存产物，用来验证打包链路
+# 推送 v* 标签：构建后自动创建 Release 并挂上安装包与绿色版
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: 离线自检（95 项协议与布局断言）
+        run: python selftest.py
+
+      - name: 打包单文件 exe
+        run: >
+          python -m PyInstaller --noconfirm --clean --onefile --windowed
+          --icon app.ico
+          --version-file installer/version_info.txt
+          --collect-all serial
+          --name STM32Host
+          --distpath dist
+          host_monitor.py
+
+      - name: 安装 Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: 编译安装包
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) {
+            $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup*\ISCC.exe",
+                                  "${env:ProgramFiles}\Inno Setup*\ISCC.exe" `
+                                  -ErrorAction SilentlyContinue |
+                    Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $iscc) { throw "找不到 ISCC.exe" }
+          Write-Host "使用 $iscc"
+          & $iscc /Qp "installer\STM32Host.iss"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: 生成校验文件并检查产物
+        shell: pwsh
+        run: |
+          Get-ChildItem dist | Format-Table Name, Length
+          $setup = Get-ChildItem "dist\STM32Host-Setup-*.exe"
+          if (-not $setup) { throw "安装包未生成" }
+          $lines = @()
+          foreach ($f in @($setup) + @(Get-Item "dist\STM32Host.exe")) {
+            $h = (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower()
+            $lines += "$h  $($f.Name)"
+          }
+          $lines | Set-Content -Path "dist\SHA256SUMS.txt" -Encoding ascii
+          Get-Content "dist\SHA256SUMS.txt"
+
+      - name: 保存构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: STM32Host-${{ github.sha }}
+          path: |
+            dist/STM32Host.exe
+            dist/STM32Host-Setup-*.exe
+            dist/SHA256SUMS.txt
+          retention-days: 14
+
+      - name: 发布到 Releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: STM32 Host 上位机 ${{ github.ref_name }}
+          files: |
+            dist/STM32Host.exe
+            dist/STM32Host-Setup-*.exe
+            dist/SHA256SUMS.txt
+          body: |
+            ## STM32 Host 上位机 ${{ github.ref_name }}
+
+            由 GitHub Actions 在 `windows-latest` 上自动构建，产物与标签提交一一对应。
+
+            ### 新增
+            - **AT 快捷指令栏**：6 条可配置指令（`AT` / 版本 / 名称 / 地址 / 波特率 / 复位），
+              支持增删改、排序、恢复默认；独立的「AT 自动回车」开关与单条行尾策略
+              （跟随开关 / `\r\n` / `\r` / 不加），配置持久化到 `%APPDATA%\STM32Host\settings.json`
+            - **可拖拽的串口终端**：拖动分隔条调节日志高度，松手即记忆；跨 125% / 150% 缩放还原不错位
+
+            ### 改进
+            - 发送后缀改为带「开 / 关」文字的胶囊开关，状态一眼可见
+            - 串口终端改为「左侧输入 + 日志 / 右侧操作栏」两栏布局，日志 9pt、默认高度提升约 60%
+            - 分隔条 9px → 5px 且不再使用强调色，中间区域更紧凑
+            - 右栏内容超高时自动滚动，任意窗口尺寸下控件不再被裁
+            - 快捷命令精简为 PING / GET / HELP（SYS / VER / RESET 仍可在输入框直接发送）
+
+            ### 安装
+            1. 下载 `STM32Host-Setup-${{ github.ref_name }}.exe`（去掉 `v` 前缀）。
+            2. 双击运行。安装包**未做代码签名**，SmartScreen 可能提示未知发布者，
+               点「更多信息 → 仍要运行」。
+            3. 默认安装到 `%LOCALAPPDATA%\Programs\STM32Host`，按当前用户安装，不需要管理员权限。
+            4. 卸载：设置 → 应用 → 已安装的应用 → STM32 Host 上位机。
+
+            不想安装可直接用 `STM32Host.exe` 绿色版，双击即运行。
+
+            ### 校验
+            `SHA256SUMS.txt` 内含两个产物的 SHA-256，核对命令：
+
+            ```bat
+            certutil -hashfile STM32Host-Setup-*.exe SHA256
+            ```
+
+            ### 说明
+            - 自动化测试使用虚拟串口与固定数据，**未做真实硬件回归**；
+              串口、蓝牙、CH340 驱动、供电和线缆仍需在开发板上复测。
+            - 源码运行需要 Python 3.9+ 64 位（含 tkinter），依赖仅 pyserial。
