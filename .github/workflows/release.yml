@@ -136,7 +136,7 @@ jobs:
             - 快捷命令精简为 PING / GET / HELP（SYS / VER / RESET 仍可在输入框直接发送）
 
             ### 安装
-            1. 下载 `STM32Host-Setup-${{ github.ref_name }}.exe`（去掉 `v` 前缀）。
+            1. 下载本页资产中的 `STM32Host-Setup-*.exe`（文件名带版本号）。
             2. 双击运行。安装包**未做代码签名**，SmartScreen 可能提示未知发布者，
                点「更多信息 → 仍要运行」。
             3. 默认安装到 `%LOCALAPPDATA%\Programs\STM32Host`，按当前用户安装，不需要管理员权限。
@@ -145,10 +145,10 @@ jobs:
             不想安装可直接用 `STM32Host.exe` 绿色版，双击即运行。
 
             ### 校验
-            `SHA256SUMS.txt` 内含两个产物的 SHA-256，核对命令：
+            `SHA256SUMS.txt` 内含两个产物的 SHA-256，核对命令（PowerShell）：
 
-            ```bat
-            certutil -hashfile STM32Host-Setup-*.exe SHA256
+            ```powershell
+            Get-FileHash .\STM32Host-Setup-*.exe -Algorithm SHA256
             ```
 
             ### 说明
