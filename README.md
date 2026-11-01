@@ -7,9 +7,10 @@
 - 界面技术：Python + Tkinter，无前端构建步骤
 - 显示适配：Windows Per-Monitor V2 DPI，1080p / 2K 自适应
 - 当前版本：**v1.10.0**
-- 安装包：[Releases 页面](https://github.com/b-as-h/Host_computer-py/releases/latest)
-  （`STM32Host-Setup-1.10.0.exe` 由 `installer\build_installer.bat` 生成后上传）
-- 发布说明：<https://github.com/b-as-h/Host_computer-py/releases>
+- 安装包：[STM32Host-Setup-1.10.0.exe](https://github.com/b-as-h/Host_computer-py/releases/download/v1.10.0/STM32Host-Setup-1.10.0.exe)（约 13 MB）
+- 绿色版：[STM32Host.exe](https://github.com/b-as-h/Host_computer-py/releases/download/v1.10.0/STM32Host.exe)（约 11 MB，免安装）
+- 校验文件：[SHA256SUMS.txt](https://github.com/b-as-h/Host_computer-py/releases/download/v1.10.0/SHA256SUMS.txt)
+- 发布说明：<https://github.com/b-as-h/Host_computer-py/releases/tag/v1.10.0>
 
 ---
 
@@ -40,7 +41,7 @@
 ### 方式一：安装包（推荐）
 
 1. 打开 [Releases](https://github.com/b-as-h/Host_computer-py/releases/latest)，下载
-   `STM32Host-Setup-1.10.0.exe`（若对应版本尚未上传，按“构建 exe 与安装包”一节自行打包）。
+   `STM32Host-Setup-1.10.0.exe`。
 2. 双击安装包。当前安装包未购买代码签名证书，Windows SmartScreen 可能提示
    “Windows 已保护你的电脑”，点 **更多信息 → 仍要运行** 即可。
 3. 选择安装位置。默认安装到 `%LOCALAPPDATA%\Programs\STM32Host`，
@@ -192,6 +193,8 @@ git push origin v1.10.0
 | `installer/STM32Host.iss` | Inno Setup 7 安装脚本（中文向导、快捷方式、卸载项） |
 | `installer/version_info.txt` | exe 文件版本信息（1.10.0） |
 | `installer/build_installer.bat` | 一键构建 exe 与安装包 |
+| `installer/ChineseSimplified.isl` | 简体中文安装向导语言包（官方 Inno 不保证自带，随仓库携带） |
+| `.github/workflows/release.yml` | CI：推标签自动构建并发布到 Releases |
 | `docs/cleanup_2026-11.md` | 仓库清理记录：判断标准、删除清单、保留理由与验证方式 |
 | `screenshot.png` | 主界面截图，仓库首页用 |
 | `screenshots/` | 趋势与雷达功能展示图 |
