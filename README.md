@@ -6,9 +6,10 @@
 - 固件协议：`Core/Src/bt.c`、`Core/Inc/bt.h`（固件工程不在本仓库）
 - 界面技术：Python + Tkinter，无前端构建步骤
 - 显示适配：Windows Per-Monitor V2 DPI，1080p / 2K 自适应
-- 当前版本：**v1.9.0**
-- 安装包：[STM32Host-Setup-1.9.0.exe](https://github.com/b-as-h/Host_computer-py/releases/download/v1.9.0/STM32Host-Setup-1.9.0.exe)
-- 发布说明：<https://github.com/b-as-h/Host_computer-py/releases/tag/v1.9.0>
+- 当前版本：**v1.10.0**
+- 安装包：[Releases 页面](https://github.com/b-as-h/Host_computer-py/releases/latest)
+  （`STM32Host-Setup-1.10.0.exe` 由 `installer\build_installer.bat` 生成后上传）
+- 发布说明：<https://github.com/b-as-h/Host_computer-py/releases>
 
 ---
 
@@ -39,7 +40,7 @@
 ### 方式一：安装包（推荐）
 
 1. 打开 [Releases](https://github.com/b-as-h/Host_computer-py/releases/latest)，下载
-   `STM32Host-Setup-1.9.0.exe`。
+   `STM32Host-Setup-1.10.0.exe`（若对应版本尚未上传，按“构建 exe 与安装包”一节自行打包）。
 2. 双击安装包。当前安装包未购买代码签名证书，Windows SmartScreen 可能提示
    “Windows 已保护你的电脑”，点 **更多信息 → 仍要运行** 即可。
 3. 选择安装位置。默认安装到 `%LOCALAPPDATA%\Programs\STM32Host`，
@@ -129,9 +130,9 @@ installer\build_installer.bat
 脚本依次完成：
 
 1. 安装 pyserial 与 PyInstaller；
-2. PyInstaller 生成 `dist\STM32Host.exe`（单文件，含图标与 1.9.0 版本信息）；
+2. PyInstaller 生成 `dist\STM32Host.exe`（单文件，含图标与 1.10.0 版本信息）；
 3. Inno Setup 编译 `installer\STM32Host.iss`，生成
-   `dist\STM32Host-Setup-1.9.0.exe`。
+   `dist\STM32Host-Setup-1.10.0.exe`。
 
 只重新生成 exe：
 
@@ -162,6 +163,8 @@ pyinstaller --noconfirm --clean --onefile --windowed --icon app.ico ^
 |---|---|
 | `host_monitor.py` | 主程序，Tkinter 图形界面，高 DPI 自适应，无第三方依赖（除 pyserial） |
 | `sysinfo.py` | 本机性能采集（CPU/GPU/内存/网络/FPS/温度），纯 ctypes，可单独 `python sysinfo.py` 自测 |
+| `appconfig.py` | 配置读写：JSON + 原子写 + 损坏回退，纯标准库 |
+| `atcmd.py` | AT 快捷指令的数据模型：默认表、校验、增删改、行尾策略 |
 | `run_host.bat` | 启动器，负责选解释器、装依赖、拉起界面 |
 | `selftest.py` | 离线自检，不需要开发板和串口，验证协议解析是否正常 |
 | `tools/system_test.py` | 前台系统级自动化测试，覆盖长时可视化、边界与异常场景 |
@@ -172,14 +175,16 @@ pyinstaller --noconfirm --clean --onefile --windowed --icon app.ico ^
 | `requirements.txt` | 运行依赖（pyserial） |
 | `requirements-dev.txt` | 开发与打包依赖（PyInstaller） |
 | `installer/STM32Host.iss` | Inno Setup 7 安装脚本（中文向导、快捷方式、卸载项） |
-| `installer/version_info.txt` | exe 文件版本信息（1.9.0） |
+| `installer/version_info.txt` | exe 文件版本信息（1.10.0） |
 | `installer/build_installer.bat` | 一键构建 exe 与安装包 |
-| `dist/STM32Host.exe` | 单文件绿色版，免安装直接运行（约 11 MB） |
-| `dist/STM32Host-Setup-1.9.0.exe` | 一键安装包（约 13 MB） |
+| `docs/cleanup_2026-11.md` | 仓库清理记录：判断标准、删除清单、保留理由与验证方式 |
 | `screenshot.png` | 主界面截图，仓库首页用 |
 | `screenshots/` | 趋势与雷达功能展示图 |
 | `app.ico` | 图标（32/48/64 三档） |
 | `README.md` | 本文档 |
+
+> 仓库**不再保存构建产物**。`dist\` 由 `installer\build_installer.bat` 在本地生成，并已被 `.gitignore` 忽略；正式安装包请从 [Releases](https://github.com/b-as-h/Host_computer-py/releases) 下载。
+> 清理依据与保留清单见 [`docs/cleanup_2026-11.md`](docs/cleanup_2026-11.md)。
 
 ## 三、环境要求
 
@@ -208,10 +213,11 @@ pyinstaller --noconfirm --clean --onefile --windowed --icon app.ico ^
 | 顶部 | 产品标题、连接状态灯、串口下拉、刷新、**波特率下拉**、同步设备速率、连接 |
 | 左栏顶部 | **电脑状态圆环**：CPU / GPU / RAM / NET / FPS，程序一打开就开始刷新，与串口是否连接无关 |
 | 左栏 | 光照、温度、湿度、片内温度、供电电压、三轴加速度、**温度曲线 + 3D 姿态仪**（并排对齐）、**雷达视图**（在曲线下方，滚轮下滚查看） |
-| 右栏 | 舵机角度滑条、舵机锁定、周期遥测开关、**雷达模式开关**、**发送电脑数据开关**、快捷命令按钮 |
-| 发送栏 | 命令输入框（回车即发）、发送命令、清空日志 |
-| 选项栏 | **追加 CRLF**、**HEX 发送**、时间戳（默认开启）、定时发送 + 间隔、命令历史提示 |
-| 日志 | 收发记录，`>` 为发送、`<` 为接收、`!` 为异常 |
+| 右栏 | 舵机角度滑条、舵机锁定、周期遥测开关、**雷达模式开关**、**发送电脑数据开关**、快捷命令（PING / GET / HELP）；内容超出高度时纵向滚动，不会被裁掉 |
+| AT 指令行 | 串口终端卡片内：6 个可配置 AT 快捷按钮、**AT 自动回车**开关、**管理**入口 |
+| 发送栏 | 命令输入框（回车即发），只占左列宽度；发送 / 清空按钮在右侧操作栏 |
+| 终端侧栏 | **CRLF / HEX / 时间戳 / 定时** 四个胶囊开关（2×2 排布，开 / 关直接写在按钮上）、定时间隔、发送命令、清空 |
+| 日志 | 收发记录，`>` 为发送、`<` 为接收、`!` 为异常；等宽 9pt，默认占满终端卡片剩余高度 |
 
 界面使用统一深色视觉规范，连接状态、按钮悬停、等待应答、操作成功/失败都有对应反馈。窗口会根据屏幕工作区和系统 DPI 自动选择 0.9–1.5 倍 UI 缩放，2K 与 1080p 下不会出现整体位图拉伸。
 
@@ -291,15 +297,45 @@ python selftest.py
 >
 > `$R` 帧不写入日志（20Hz 会把有用信息冲掉），其它帧照常记录。
 
+### AT 快捷指令
+
+串口终端卡片里有一行 AT 指令，专门给 HC-05 / HC-06 这类蓝牙模块用：
+
+- 默认 6 条：`AT` / `AT+VERSION?` / `AT+NAME?` / `AT+ADDR?` / `AT+BAUD?` / `AT+RESET`；
+- 鼠标悬停任意按钮，显示完整指令和当前行尾策略（按钮上只放短名称）；
+- 「AT 自动回车」（默认开）**只作用于这一组按钮**，与下方全局「CRLF」开关完全独立，
+  两个都开也不会发出 `\r\n\r\n`；
+- 点「管理」可增 / 删 / 改 / 上移 / 下移 / 恢复默认，最多 12 条，名称最多 6 个字符；
+- 指令只允许半角 ASCII —— `encode("ascii")` 会静默丢掉中文，所以在保存时就拦住；
+- 每条可单独指定行尾：跟随开关 / 固定 `\r\n` / 固定 `\r` / 不加；
+- 改完立即生效并写入配置，下次启动自动恢复。
+
+> AT 指令是发给蓝牙模块的，STM32 固件收到会回 `-ERR,UNKNOWN`，属正常现象。
+> 进入 AT 模式通常要把模块 KEY 脚拉高（或按住按键上电），波特率多为 38400。
+
+### 可拖拽的串口终端
+
+主区与终端卡片之间的分隔条可以直接上下拖：
+
+- 终端默认 300px，日志区吃掉卡片里的全部剩余高度（约 11 行），比旧版多六成；
+- 主区至少 300px、终端至少 276px，窗口变小时自动压缩，不会把发送栏挤没；
+- 松手后高度写入配置，下次启动按同样高度还原；
+- 存的是逻辑像素（除以 UI 缩放），换 125% / 150% 缩放不会错位；
+- 分隔线只有 5px，指针移上去时提亮并变成上下箭头光标；
+- 主区压到不够放右栏时，右栏自动出现滚动条，不会把快捷命令裁掉。
+
+配置文件在 `%APPDATA%\STM32Host\settings.json`，可用环境变量 `STM32HOST_CONFIG_DIR` 覆盖。
+文件损坏时会被改名成 `settings.json.<时间戳>.bad` 并回落默认值，不会因为配置坏了打不开程序。
+
 ### 常用功能细节
 
 | 功能 | 说明 |
 |---|---|
-| 追加 CRLF | 默认开启，发送命令时自动补 `\r\n`；取消后原样发送（固件按 `\r` 或 `\n` 断行） |
+| CRLF 开关 | 默认「开」，发送命令时自动补 `\r\n`；点一下变「关」，原样发送（固件按 `\r` 或 `\n` 断行）。开关本体直接写着开 / 关，鼠标悬停可看当前行为说明 |
 | HEX 发送 | 支持 `AA 55 01` 和 `aa,55,0x01` 两种写法，开启后忽略回车选项 |
 | 定时发送 | 按设定间隔重复发送输入框内容，最小 50ms |
 | 命令历史 | 输入框内按 `↑` / `↓` 翻历史命令 |
-| 快捷命令 | PING / GET / SYS / VER / HELP / RESET 六个按钮，等价于在输入框里输入 |
+| 快捷命令 | PING / GET / HELP 三个按钮，等价于在输入框里输入；SYS / VER / RESET 直接在输入框输入即可 |
 | PONG 超时 | 连接后 1.5 秒没收到 `+PONG`，状态栏变黄提示检查供电和波特率 |
 
 ## 六、蓝牙协议
@@ -440,11 +476,14 @@ PC,cpu=21,mem=63,gpu=6,ct=-1,gt=-1,cf=4007,gc=-1,ru=101,rt=160,dn=7,up=12,fps=75
 | 双击 bat 一闪而过 | 用 cmd 手动运行 `python host_monitor.py` 看报错 |
 | 图标显示成白纸 | 桌面按 F5 刷新，或重建图标缓存 |
 | 改了 `host_monitor.py` 但 exe 没变化 | 源码不会自动进入旧 exe，需重新执行 PyInstaller |
+| 改了 AT 指令，重开又变回默认 | 配置没写进去（目录只读或被杀软拦）。看日志里的「配置保存失败」，或用环境变量 `STM32HOST_CONFIG_DIR` 指到可写目录 |
+| 日志区太矮 / 太高 | 拖主区与终端之间的分隔条，松手后自动记住 |
 | 界面文字发虚 | 确认使用新版 exe；旧版未声明 DPI 感知，在 125%/150% 缩放下会被系统拉伸 |
 
 ## 九、自己扩展
 
-- 新增命令：固件 `Core/Src/bt.c` 的 `bt_exec()` 加分支，上位机在右栏「快捷命令」数组里加按钮。
+- 新增命令：固件 `Core/Src/bt.c` 的 `bt_exec()` 加分支；上位机可改 `host_monitor.py` 顶部的 `QUICK_COMMANDS`，或在界面里用「AT 指令 → 管理」加按钮。
+- 改 AT 指令默认表：`atcmd.py` 的 `DEFAULTS`；改配置目录：环境变量 `STM32HOST_CONFIG_DIR`。
 - 改界面配色：`host_monitor.py` 顶部的 `BG` / `PANEL` / `ACCENT` 常量。
 - 改默认波特率：固件 `Core/Src/usart.c` 的 `huart1.Init.BaudRate`，以及上位机 `DEFAULT_BAUD`。
 
@@ -452,6 +491,7 @@ PC,cpu=21,mem=63,gpu=6,ct=-1,gt=-1,cf=4007,gc=-1,ru=101,rt=160,dn=7,up=12,fps=75
 
 | 版本 | 内容 |
 |---|---|
+| v1.10.0 | 发送后缀改为带「开 / 关」文字的胶囊开关，状态一眼可见；新增可配置 **AT 快捷指令栏**（默认 6 条、增删改、排序、恢复默认、独立「AT 自动回车」开关、行尾策略、悬停提示）；主区与终端之间改为**可拖拽分隔条**并记住高度；快捷命令精简为 PING / GET / HELP；新增 `appconfig.py` / `atcmd.py` 两个纯逻辑模块，配置原子写盘并在损坏时自动隔离；关闭时停止性能采集线程；自检扩展到 95 项；终端卡片改为「左侧输入 + 日志 / 右侧操作栏」两栏布局，发送与清空按钮、四个开关竖向收纳，日志字号降到 9pt 且默认高度提升到 300px；分隔条 9px→5px 且不再使用强调色；右栏内容超高时可滚动，任意窗口尺寸下不再出现控件被裁 |
 | v1.9.0 | 新增 **Inno Setup 7 一键安装包**（中文向导、开始菜单/桌面快捷方式、标准卸载项、按用户安装）；exe 写入 1.9.0 文件版本信息；补充 `requirements.txt` / `requirements-dev.txt` 与可复现构建脚本；清理 `__pycache__`、旧构建临时目录和误建空文件；README 增加安装、卸载、构建与 SmartScreen 说明 |
 | v1.8 | 新增前台系统测试台：55 项 E2E 覆盖通信、控制、传感器、界面、异常恢复；陀螺仪、温度曲线、雷达长时验证均超过 5 秒；自动生成模块报告、JSON 和阶段截图；修复温度曲线平滑线及标签 1px 越界 |
 | v1.7 | 重做 **3D 姿态仪**：深色低饱和仪表、蓝灰立方体、柔和红 X / 绿 Y / 蓝 Z 轴；姿态由 `+DATA` / `$D` 驱动，30fps 时间缓动；新增 `LIVE / WAIT / HOLD / DATA ERR / OFFLINE` 状态、NaN 拒收、角度钳位和断连保持；新增 `tools/gyro_sim.py` 模拟器与 13 项姿态回归测试，自检 79 项全部通过 |

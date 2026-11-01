@@ -24,6 +24,7 @@ import sys
 import threading
 import time
 import tkinter as tk
+import unicodedata
 from ctypes import wintypes
 from tkinter import ttk, messagebox, font as tkfont
 
@@ -39,6 +40,9 @@ try:
 except Exception:           # 采集模块不可用不影响串口功能
     sysinfo = None
 
+import appconfig           # 配置持久化（纯标准库）
+import atcmd               # AT 快捷指令模型（纯标准库）
+
 BAUD_CHOICES = ["9600", "19200", "38400", "57600", "115200"]
 DEFAULT_BAUD = "9600"
 HISTORY = 120
@@ -50,6 +54,16 @@ GYRO_KEYS = ("gx", "gy", "gz", "roll", "pitch")
 GYRO_STALE_S = 2.0          # 超过 2 秒无新姿态帧则标记 HOLD
 GYRO_TAU_S = 0.10           # 30fps 下的姿态缓动时间常数
 
+TERM_H_DEFAULT = 300        # 串口终端卡片默认高度（96 DPI 设计像素）
+TERM_H_MIN = 276            # 分隔条能拖到的最小高度，保证右侧操作栏完整可见
+TERM_H_MIN_MAIN = 300       # 主区最小高度；右栏已可滚动，不必再撑满
+TERM_H_MAX_RATIO = 0.62     # 终端最多占分隔区域的比例
+AT_COLUMNS = 6              # AT 按钮每行列数，6 条默认指令正好一行
+TOGGLE_ON_BG = "#173a2e"    # 开关开启态底色（深绿），与 ACCENT 文字配合
+QUICK_COMMANDS = ("PING", "GET", "HELP")
+CRLF_HINT_ON = "发送时自动补 \\r\\n"
+CRLF_HINT_OFF = "原样发送，不补后缀"
+
 # 统一的桌面工具视觉规范：低亮度底色、分层面板、单一强调色。
 BG = "#10151b"
 PANEL = "#1a222b"
@@ -60,7 +74,6 @@ ACCENT = "#4fc3a1"
 ACCENT_HOVER = "#6dd6b6"
 WARN = "#f0ad4e"
 DANGER = "#ef6a70"
-INFO = "#65a9e8"
 BORDER = "#31404d"
 INPUT = "#121a22"
 SHADOW = "#090d11"
@@ -230,6 +243,130 @@ class ActionButton(tk.Button):
                            fg=self.VARIANTS[self.variant][1], cursor="hand2")
 
 
+class ToggleChip(tk.Checkbutton):
+    """带「开 / 关」文字的胶囊开关。
+
+    原生 Checkbutton 只有一个小方框，缩放 125% 时很难一眼看出状态。
+    这里用 indicatoron=False 的按钮形态，把状态直接写进按钮文字并用底色区分：
+    开启 = 深绿底 + ACCENT 文字，关闭 = 面板灰底 + MUTED 文字。
+    变量名保持不变（crlf_var 等），外部逻辑和自检脚本不需要改。
+    """
+
+    def __init__(self, master, text, variable, command=None, **kwargs):
+        self._label = text
+        self._var = variable
+        self._user_command = command
+        self._trace = None
+        kwargs.setdefault("font", (FONT_UI, 10, "bold"))
+        super().__init__(
+            master, text="", variable=variable, indicatoron=False,
+            relief="flat", bd=0, highlightthickness=0, cursor="hand2",
+            padx=_sp(10), pady=_sp(3), bg=PANEL_ALT, fg=MUTED,
+            activebackground=PANEL_ALT, activeforeground=FG,
+            selectcolor=TOGGLE_ON_BG, command=self._on_toggle, **kwargs)
+        try:
+            # 外部代码直接 var.set() 时也要同步文字，否则显示会和真实状态脱节
+            self._trace = variable.trace_add("write", lambda *_: self.refresh())
+        except Exception:
+            self._trace = None
+        self.refresh()
+
+    def _on_toggle(self):
+        self.refresh()
+        if self._user_command is not None:
+            self._user_command()
+
+    def refresh(self):
+        try:
+            if not self.winfo_exists():
+                return
+        except tk.TclError:
+            return
+        on = bool(self._var.get())
+        bg = TOGGLE_ON_BG if on else PANEL_ALT
+        self.configure(text="%s  %s" % (self._label, "开" if on else "关"),
+                       bg=bg, fg=ACCENT if on else MUTED,
+                       activebackground=bg, selectcolor=bg)
+
+    def is_on(self):
+        return bool(self._var.get())
+
+
+class Tip:
+    """轻量悬浮提示：延迟 450ms 出现，不引入第三方库。
+
+    AT 按钮上只写短名称，真正的指令和行尾策略放在提示里，避免按钮变宽。
+    """
+
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self._job = None
+        self._win = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<ButtonPress>", self._hide, add="+")
+
+    def set_text(self, text):
+        self.text = text
+
+    def _schedule(self, _event=None):
+        self._cancel()
+        try:
+            self._job = self.widget.after(450, self._show)
+        except tk.TclError:
+            self._job = None
+
+    def _cancel(self):
+        if self._job is not None:
+            try:
+                self.widget.after_cancel(self._job)
+            except Exception:
+                pass
+            self._job = None
+
+    def _show(self):
+        self._job = None
+        if self._win is not None or not self.text:
+            return
+        try:
+            if not self.widget.winfo_exists():
+                return
+            x = self.widget.winfo_rootx() + _sp(6)
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + _sp(4)
+            win = tk.Toplevel(self.widget)
+            win.wm_overrideredirect(True)
+            win.configure(bg=BORDER)
+            tk.Label(win, text=self.text, bg=INPUT, fg=FG,
+                     font=(FONT_MONO, 9), padx=_sp(8), pady=_sp(4),
+                     justify="left").pack(padx=1, pady=1)
+            win.wm_geometry("+%d+%d" % (x, y))
+            self._win = win
+        except tk.TclError:
+            self._win = None
+
+    def _hide(self, _event=None):
+        self._cancel()
+        if self._win is not None:
+            try:
+                self._win.destroy()
+            except tk.TclError:
+                pass
+            self._win = None
+
+
+def _pad_width(text, width):
+    """按显示宽度补空格：中文/全角算 2 列，半角算 1 列。
+
+    Listbox 没有制表位，`"%-8s"` 只按字符数补，中文会短一截导致列错位。
+    """
+    text = str(text)
+    used = 0
+    for ch in text:
+        used += 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+    return text + " " * max(0, width - used)
+
+
 def _fmt_speed(kbs):
     """KB/s 转紧凑显示。"""
     try:
@@ -282,6 +419,16 @@ class MonitorApp:
         self.radar_last_dist = -1   # 最近一次收到的距离，-1 表示无回波
         self.radar_pts = {}         # 角度(0-180) -> 距离(cm)
 
+        # ---- 配置与 AT 快捷指令：读不到就用默认值，绝不阻塞启动 ----
+        self.cfg = appconfig.Config()
+        self.at_items = atcmd.normalize(self.cfg.get("at.commands"))
+        self.at_btns = []
+        self._at_tips = []
+        self._save_job = None
+        self._split_ready = False
+        self._sash_hot = False
+        self._cfg_error = self.cfg.last_error
+
         # ---- 电脑状态采集：程序一打开就开始，不依赖串口 ----
         self.sys = None
         self.pc_last = 0.0          # 上次推送电脑数据的时间
@@ -295,6 +442,8 @@ class MonitorApp:
                 self.sys = None
 
         self._build_ui()
+        if self._cfg_error:
+            self._log("! " + self.cfg.status())
         self._draw_gyro()
         self._draw_radar()
         self.root.after(50, self._poll)
@@ -316,12 +465,12 @@ class MonitorApp:
         self.ui_scale = UI_SCALE
 
         win_w = min(_sp(1100), work_w - _sp(24))
-        win_h = min(_sp(780), work_h - _sp(40))
+        win_h = min(_sp(800), work_h - _sp(40))
         pos_x = work_x + max(_sp(8), (work_w - win_w) // 2)
         pos_y = work_y + max(_sp(8), (work_h - win_h) // 2)
         self.root.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
         self.root.minsize(min(_sp(980), work_w - _sp(24)),
-                          min(_sp(700), work_h - _sp(40)))
+                          min(_sp(740), work_h - _sp(40)))
 
         # 统一 Tk/ttk 字体，避免不同控件回退到不同系统字体。
         for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont"):
@@ -414,15 +563,40 @@ class MonitorApp:
         ActionButton(controls, text="同步设备速率", width=13, variant="secondary",
                      command=self._sync_device_baud).pack(side="right", padx=(0, _sp(8)))
 
-        # ---- 主体：右侧控制固定宽度，左侧监控区自适应 ----
-        body = tk.Frame(outer, bg=BG)
-        body.pack(fill="both", expand=True)
-        right_card = RoundedCard(body, width=_sp(244))
+        # ---- 主体：上下可拖拽分隔；右侧控制固定宽度，左侧监控区自适应 ----
+        # 用 PanedWindow 而不是手写拖拽手柄：pane 的 minsize 由 Tk 自己保证，
+        # 窗口缩小时不会出现"终端把主区挤没"的边界情况。
+        split = tk.PanedWindow(outer, orient="vertical", bg=BORDER, bd=0,
+                               sashwidth=_sp(5), sashrelief="flat", sashpad=0,
+                               opaqueresize=True, showhandle=False,
+                               sashcursor="sb_v_double_arrow")
+        split.pack(fill="both", expand=True)
+        split.bind("<Motion>", self._on_split_motion)
+        split.bind("<Leave>", self._on_sash_leave)
+        split.bind("<ButtonRelease-1>", self._on_sash_release)
+        self.split = split
+
+        body = tk.Frame(split, bg=BG)
+        right_card = RoundedCard(body, width=_sp(248))
         self.right_card = right_card
         right_card.pack(side="right", fill="y", padx=(_sp(12), 0))
-        right = tk.Frame(right_card.body, bg=PANEL, padx=_sp(16), pady=_sp(10))
+        # 右栏也做成可滚动：把终端拉高、或窗口本身变矮时，
+        # 底部的快捷命令不会被裁掉，只是需要滚一下
+        right_box = tk.Frame(right_card.body, bg=PANEL)
+        right_box.pack(fill="both", expand=True)
+        self.right_scroll = tk.Canvas(right_box, bg=PANEL, highlightthickness=0,
+                                      yscrollincrement=_sp(24))
+        self.right_bar = ttk.Scrollbar(right_box, orient="vertical",
+                                        command=self.right_scroll.yview)
+        self.right_scroll.configure(yscrollcommand=self.right_bar.set)
+        self.right_scroll.pack(side="left", fill="both", expand=True)
+
+        right = tk.Frame(self.right_scroll, bg=PANEL, padx=_sp(14), pady=_sp(6))
         self.right_panel = right
-        right.pack(fill="both", expand=True)
+        self._right_win = self.right_scroll.create_window((0, 0), window=right,
+                                                          anchor="nw")
+        right.bind("<Configure>", lambda e: self._on_right_layout())
+        self.right_scroll.bind("<Configure>", lambda e: self._on_right_layout())
 
         scroll_host = RoundedCard(body)
         scroll_host.pack(side="left", fill="both", expand=True)
@@ -557,72 +731,60 @@ class MonitorApp:
         ttk.Checkbutton(right, text="发送电脑数据  1s", variable=self.pcdata_var,
                         command=self._toggle_pcdata).pack(anchor="w", fill="x")
 
-        ttk.Separator(right, orient="horizontal").pack(fill="x", pady=_sp(8))
+        ttk.Separator(right, orient="horizontal").pack(fill="x", pady=_sp(5))
 
         ttk.Label(right, text="快捷命令", style="Muted.TLabel").pack(
-            anchor="w", pady=(0, _sp(3)))
+            anchor="w", pady=(0, _sp(2)))
         quick = tk.Frame(right, bg=PANEL)
         quick.pack(fill="x")
         for col in range(3):
             quick.columnconfigure(col, weight=1, uniform="quick")
-        for i, cmd in enumerate(["PING", "GET", "SYS", "VER", "HELP", "RESET"]):
+        for i, cmd in enumerate(QUICK_COMMANDS):
             ActionButton(quick, text=cmd, width=5, padx=_sp(5), pady=_sp(4),
-                         variant="danger" if cmd == "RESET" else "secondary",
                          command=lambda c=cmd: self._send(c)).grid(
                 row=i // 3, column=i % 3, padx=_sp(3), pady=_sp(3), sticky="ew")
 
-        # ---- 底部：串口命令与日志终端 ----
-        bottom_card = RoundedCard(outer, height=_sp(214))
+        # ---- 底部：串口命令与日志终端（高度由上方分隔条决定） ----
+        bottom_card = RoundedCard(split, height=_sp(TERM_H_DEFAULT))
         self.bottom_card = bottom_card
-        bottom_card.pack(fill="x", pady=(_sp(12), 0))
-        bottom = tk.Frame(bottom_card.body, bg=PANEL, padx=_sp(14), pady=_sp(10))
+        bottom = tk.Frame(bottom_card.body, bg=PANEL, padx=_sp(14), pady=_sp(8))
         bottom.pack(fill="both", expand=True)
         log_head = tk.Frame(bottom, bg=PANEL)
-        log_head.pack(fill="x", pady=(0, _sp(7)))
+        log_head.pack(fill="x", pady=(0, _sp(6)))
         ttk.Label(log_head, text="串口终端", style="Section.TLabel").pack(side="left")
-        ttk.Label(log_head, text="> 发送   < 接收   ! 异常",
+        ttk.Label(log_head, text="> 发送   < 接收   ! 异常   ·   ↑/↓ 历史",
                   style="Muted.TLabel").pack(side="right")
 
-        send_bar = tk.Frame(bottom, bg=PANEL)
+        # AT 快捷指令条：配置驱动，和固件快捷命令互不干扰
+        self._build_at_bar(bottom)
+
+        # 下半部分：左侧「输入框 + 日志」吃掉全部剩余空间，右侧固定宽度操作栏。
+        # 这样发送栏和开关不再各占一整行，日志在同样卡片高度下能多出 3~4 行。
+        lower = tk.Frame(bottom, bg=PANEL)
+        lower.pack(fill="both", expand=True)
+        self._build_term_side(lower)
+
+        main_col = tk.Frame(lower, bg=PANEL)
+        main_col.pack(side="left", fill="both", expand=True)
+
+        send_bar = tk.Frame(main_col, bg=PANEL)
         send_bar.pack(fill="x", pady=(0, _sp(6)))
         self.cmd_var = tk.StringVar()
         self.cmd_entry = ttk.Entry(send_bar, textvariable=self.cmd_var,
                                    font=(FONT_MONO, 10))
-        self.cmd_entry.pack(side="left", fill="x", expand=True, padx=(0, _sp(8)))
+        self.cmd_entry.pack(side="left", fill="x", expand=True)
         self.cmd_entry.bind("<Return>", lambda e: self._send_custom())
         self.cmd_entry.bind("<Up>", self._hist_prev)
         self.cmd_entry.bind("<Down>", self._hist_next)
-        ActionButton(send_bar, text="发送命令", variant="primary",
-                     command=self._send_custom).pack(side="left")
-        ActionButton(send_bar, text="清空", variant="secondary",
-                     command=self._clear_log).pack(side="left", padx=(_sp(8), 0))
 
-        opts = tk.Frame(bottom, bg=PANEL)
-        opts.pack(fill="x", pady=(0, _sp(7)))
-        self.crlf_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(opts, text="追加 CRLF", variable=self.crlf_var).pack(side="left")
-        self.hex_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(opts, text="HEX 发送", variable=self.hex_var).pack(
-            side="left", padx=(_sp(12), 0))
-        self.ts_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(opts, text="时间戳", variable=self.ts_var).pack(
-            side="left", padx=(_sp(12), 0))
-        self.timer_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(opts, text="定时发送", variable=self.timer_var).pack(
-            side="left", padx=(_sp(12), 0))
-        self.period_var = tk.StringVar(value="1000")
-        ttk.Entry(opts, textvariable=self.period_var, width=6).pack(
-            side="left", padx=(_sp(3), _sp(3)))
-        ttk.Label(opts, text="ms", style="Muted.TLabel").pack(side="left")
-        ttk.Label(opts, text="↑ / ↓ 历史命令", style="Muted.TLabel").pack(side="right")
-
-        log_frame = tk.Frame(bottom, bg=BORDER, padx=1, pady=1)
+        log_frame = tk.Frame(main_col, bg=BORDER, padx=1, pady=1)
         log_frame.pack(fill="both", expand=True)
-        self.log = tk.Text(log_frame, height=6, bg=INPUT, fg="#b8c7d3", bd=0,
-                           font=(FONT_MONO, 10), insertbackground=FG,
+        # 字号从 10 降到 9：日志是纯文本流，小一号能多塞两成行数
+        self.log = tk.Text(log_frame, height=4, bg=INPUT, fg="#b8c7d3", bd=0,
+                           font=(FONT_MONO, 9), insertbackground=FG,
                            selectbackground=BORDER, selectforeground=FG,
-                           padx=_sp(9), pady=_sp(7),
-                           spacing1=_sp(1), spacing3=_sp(1),
+                           padx=_sp(8), pady=_sp(6),
+                           spacing1=0, spacing3=_sp(1),
                            yscrollcommand=lambda *args: log_scroll.set(*args))
         log_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self.log.yview)
         log_scroll.pack(side="right", fill="y")
@@ -631,6 +793,472 @@ class MonitorApp:
 
         # 串口枚举放在最后：它可能触发日志输出，此时所有控件必须已就绪
         self._refresh_ports()
+
+        # 两个 pane 最后一次性加入：子控件建好之后 PanedWindow 才能算准 minsize
+        split.add(body, stretch="always", minsize=_sp(TERM_H_MIN_MAIN))
+        split.add(bottom_card, stretch="never", minsize=_sp(TERM_H_MIN))
+        self.root.after(60, self._restore_layout)
+
+    # ---------- AT 快捷指令 ----------
+    def _build_at_bar(self, parent):
+        """AT 指令条：短名称按钮 + 独立回车开关 + 管理入口。
+
+        刻意和「快捷命令」分开：那一组是 STM32 固件命令，跟随全局「追加 CRLF」；
+        这一组是蓝牙模块的 AT 指令，行尾只听自己的开关，两边不会叠加出 \\r\\n\\r\\n。
+        """
+        # 整条排成一行：标签 + 指令按钮 + 右侧管理/开关。
+        # 原来分两行（标题行 + 按钮行）会白白吃掉 30px，终端窗口一矮日志就没了。
+        bar = tk.Frame(parent, bg=PANEL)
+        bar.pack(fill="x", pady=(0, _sp(6)))
+        ttk.Label(bar, text="AT 指令", style="Muted.TLabel").pack(
+            side="left", padx=(0, _sp(7)))
+
+        self.at_crlf_var = tk.BooleanVar(value=True)
+        self.at_crlf_chip = ToggleChip(bar, text="AT 自动回车",
+                                       variable=self.at_crlf_var,
+                                       command=self._on_at_crlf)
+        self.at_crlf_chip.pack(side="right")
+        ActionButton(bar, text="管理", variant="secondary", padx=_sp(9), pady=_sp(1),
+                     command=self._open_at_manager).pack(
+            side="right", padx=(0, _sp(8)))
+
+        self.at_grid = tk.Frame(bar, bg=PANEL)
+        self.at_grid.pack(side="left")
+        self._render_at_chips()
+
+    def _on_right_layout(self):
+        """右栏尺寸变化时同步滚动区域；装得下就收起滚动条。"""
+        try:
+            self.right_scroll.configure(scrollregion=self.right_scroll.bbox("all"))
+            self.right_scroll.itemconfigure(self._right_win,
+                                            width=self.right_scroll.winfo_width())
+        except tk.TclError:
+            return
+        if not hasattr(self, "right_bar"):
+            return
+        need = (self.right_panel.winfo_reqheight()
+                > self.right_scroll.winfo_height() + _sp(2))
+        shown = self.right_bar.winfo_ismapped()
+        try:
+            if need and not shown:
+                # before= 保证滚动条先占右侧，再让画布吃剩余宽度
+                self.right_bar.pack(side="right", fill="y", padx=(0, _sp(2)),
+                                    pady=_sp(2), before=self.right_scroll)
+            elif not need and shown:
+                self.right_bar.pack_forget()
+        except tk.TclError:
+            pass
+
+    def _build_term_side(self, parent):
+        """终端右侧操作栏：发送 / 清空、四个开关、定时间隔纵向收纳。
+
+        宽度固定、竖向排布，日志区向左吃掉剩余空间。这样终端拉高时，
+        按钮和开关不再各占一整行把日志挤扁，空间利用率随窗口高度线性提高。
+        """
+        side = tk.Frame(parent, bg=PANEL, width=_sp(210))
+        side.pack(side="right", fill="y", padx=(_sp(10), 0))
+        side.pack_propagate(False)
+        self.term_side = side
+
+        ActionButton(side, text="发送命令", variant="primary",
+                     command=self._send_custom).pack(fill="x", pady=(0, _sp(4)))
+        ActionButton(side, text="清空", variant="secondary",
+                     command=self._clear_log).pack(fill="x", pady=(0, _sp(6)))
+
+        grid = tk.Frame(side, bg=PANEL)
+        grid.pack(fill="x", pady=(0, _sp(3)))
+        for col in range(2):
+            grid.columnconfigure(col, weight=1, uniform="tsw")
+
+        self.crlf_var = tk.BooleanVar(value=True)
+        self.crlf_chip = ToggleChip(grid, text="CRLF", variable=self.crlf_var,
+                                    command=self._on_crlf_toggle)
+        self.crlf_chip.grid(row=0, column=0, sticky="ew",
+                            padx=(0, _sp(4)), pady=(0, _sp(4)))
+        self.hex_var = tk.BooleanVar(value=False)
+        ToggleChip(grid, text="HEX", variable=self.hex_var).grid(
+            row=0, column=1, sticky="ew", pady=(0, _sp(4)))
+        self.ts_var = tk.BooleanVar(value=True)
+        ToggleChip(grid, text="时间戳", variable=self.ts_var).grid(
+            row=1, column=0, sticky="ew", padx=(0, _sp(4)))
+        self.timer_var = tk.BooleanVar(value=False)
+        ToggleChip(grid, text="定时", variable=self.timer_var).grid(
+            row=1, column=1, sticky="ew")
+
+        timer = tk.Frame(side, bg=PANEL)
+        timer.pack(fill="x", pady=(_sp(6), 0))
+        self.period_var = tk.StringVar(value="1000")
+        ttk.Entry(timer, textvariable=self.period_var, width=5).pack(side="left")
+        ttk.Label(timer, text="ms", style="Muted.TLabel").pack(
+            side="left", padx=(_sp(4), 0))
+
+        # 状态说明放悬浮提示：侧栏竖向空间紧张，一句常驻文字会把开关顶出卡片
+        self.crlf_tip = Tip(self.crlf_chip, CRLF_HINT_ON)
+
+    def _render_at_chips(self):
+        """按当前配置重建按钮行；条目数为 0 时给一句可操作的提示。"""
+        for tip in getattr(self, "_at_tips", []):
+            tip._hide()          # 重建时先收起可能还挂着的悬浮提示
+        for child in self.at_grid.winfo_children():
+            child.destroy()
+        self.at_btns = []
+        self._at_tips = []
+
+        if not self.at_items:
+            tk.Label(self.at_grid, text="尚未配置 AT 指令，点右侧「管理」添加",
+                     bg=PANEL, fg=MUTED, font=(FONT_UI, 10)).grid(
+                row=0, column=0, columnspan=AT_COLUMNS, sticky="w")
+            return
+
+        for i, item in enumerate(self.at_items):
+            btn = ActionButton(self.at_grid, text=item["name"],
+                               padx=_sp(9), pady=_sp(2),
+                               command=lambda i=i: self._send_at(i))
+            btn.grid(row=i // AT_COLUMNS, column=i % AT_COLUMNS,
+                     padx=(0, _sp(5)), pady=_sp(2), sticky="w")
+            self._at_tips.append(Tip(btn, self._at_tip_text(item)))
+            self.at_btns.append(btn)
+
+    def _at_tip_text(self, item):
+        eol = item.get("eol", atcmd.EOL_AUTO)
+        if eol == atcmd.EOL_AUTO:
+            real = "\\r\\n" if self.at_crlf_var.get() else "无"
+            return "%s\n行尾: 跟随开关（当前 %s）" % (item["cmd"], real)
+        return "%s\n行尾: %s" % (item["cmd"], atcmd.EOL_LABELS.get(eol, eol))
+
+    def _refresh_at_tips(self):
+        for tip, item in zip(self._at_tips, self.at_items):
+            tip.set_text(self._at_tip_text(item))
+
+    def _send_at(self, index):
+        """发送一条 AT 指令：行尾只由 AT 开关与该条目的策略决定。"""
+        if not (0 <= index < len(self.at_items)):
+            return False
+        item = self.at_items[index]
+        payload = atcmd.build_payload(item["cmd"], item.get("eol"),
+                                      self.at_crlf_var.get())
+        if not payload:
+            return False
+        return self._send_bytes(payload.encode("ascii", "replace"), item["cmd"])
+
+    def _on_at_crlf(self):
+        on = self.at_crlf_var.get()
+        self._notify("AT 指令自动追加 \\r\\n" if on else "AT 指令原样发送",
+                     ACCENT if on else WARN)
+        self._refresh_at_tips()
+
+    def _open_at_manager(self):
+        """AT 指令管理弹窗：增删改、排序、恢复默认，改完立即生效并落盘。"""
+        win = tk.Toplevel(self.root)
+        win.title("AT 快捷指令管理")
+        win.configure(bg=BG)
+        win.transient(self.root)
+        win.resizable(False, False)
+
+        wrap = tk.Frame(win, bg=PANEL, padx=_sp(16), pady=_sp(14))
+        wrap.pack(fill="both", expand=True, padx=_sp(10), pady=_sp(10))
+
+        ttk.Label(wrap, text="AT 快捷指令", style="Section.TLabel").pack(anchor="w")
+        ttk.Label(wrap, text="短名称显示在按钮上；指令只允许半角字符",
+                  style="Muted.TLabel").pack(anchor="w", pady=(_sp(2), _sp(8)))
+
+        list_wrap = tk.Frame(wrap, bg=BORDER, padx=1, pady=1)
+        list_wrap.pack(fill="x")
+        listbox = tk.Listbox(list_wrap, height=8, width=44, bg=INPUT, fg=FG,
+                             selectbackground=ACCENT, selectforeground="#10231d",
+                             bd=0, highlightthickness=0, activestyle="none",
+                             font=(FONT_MONO, 10), exportselection=False)
+        at_scroll = ttk.Scrollbar(list_wrap, orient="vertical",
+                                  command=listbox.yview)
+        listbox.configure(yscrollcommand=at_scroll.set)
+        at_scroll.pack(side="right", fill="y")
+        listbox.pack(side="left", fill="both", expand=True)
+
+        form = tk.Frame(wrap, bg=PANEL)
+        form.pack(fill="x", pady=(_sp(10), _sp(4)))
+        name_var = tk.StringVar()
+        cmd_var = tk.StringVar()
+        eol_labels = [atcmd.EOL_LABELS[k] for k in atcmd.EOL_ORDER]
+        eol_var = tk.StringVar(value=eol_labels[0])
+
+        ttk.Label(form, text="名称", style="Muted.TLabel").grid(
+            row=0, column=0, sticky="w")
+        name_entry = ttk.Entry(form, textvariable=name_var, width=9,
+                               font=(FONT_UI, 10))
+        name_entry.grid(row=0, column=1, padx=(_sp(4), _sp(10)))
+        ttk.Label(form, text="指令", style="Muted.TLabel").grid(
+            row=0, column=2, sticky="w")
+        cmd_entry = ttk.Entry(form, textvariable=cmd_var, width=22,
+                              font=(FONT_MONO, 10))
+        cmd_entry.grid(row=0, column=3, padx=(_sp(4), _sp(10)))
+        ttk.Label(form, text="行尾", style="Muted.TLabel").grid(
+            row=0, column=4, sticky="w")
+        ttk.Combobox(form, textvariable=eol_var, values=eol_labels, width=9,
+                     state="readonly").grid(row=0, column=5, padx=(_sp(4), 0))
+
+        msg = tk.Label(wrap, text="", bg=PANEL, fg=MUTED, font=(FONT_UI, 9),
+                       anchor="w")
+        msg.pack(fill="x", pady=(_sp(6), _sp(2)))
+
+        tools = tk.Frame(wrap, bg=PANEL)
+        tools.pack(fill="x", pady=(_sp(4), 0))
+        for col in range(6):
+            tools.columnconfigure(col, weight=1, uniform="atools")
+
+        def eol_value():
+            label = eol_var.get()
+            return atcmd.EOL_ORDER[eol_labels.index(label)] \
+                if label in eol_labels else atcmd.EOL_AUTO
+
+        def say(text, tone=MUTED):
+            msg.configure(text=text, fg=tone)
+
+        def refresh(select=None):
+            listbox.delete(0, "end")
+            for it in self.at_items:
+                # 中文是双宽字符，按字符数补空格会让指令列对不齐，
+                # 所以按显示宽度补齐（Listbox 没有原生制表位）
+                listbox.insert("end", "%s%s%s" % (
+                    _pad_width(it["name"], 8), _pad_width(it["cmd"], 20),
+                    atcmd.EOL_LABELS.get(it["eol"], atcmd.EOL_AUTO)))
+            if self.at_items:
+                idx = 0 if select is None else max(
+                    0, min(select, len(self.at_items) - 1))
+                listbox.selection_clear(0, "end")
+                listbox.selection_set(idx)
+                listbox.activate(idx)
+                load(idx)
+            else:
+                name_var.set("")
+                cmd_var.set("")
+                eol_var.set(eol_labels[0])
+
+        def load(idx):
+            if not (0 <= idx < len(self.at_items)):
+                return
+            item = self.at_items[idx]
+            name_var.set(item["name"])
+            cmd_var.set(item["cmd"])
+            eol_var.set(atcmd.EOL_LABELS.get(item["eol"], eol_labels[0]))
+
+        def current_index():
+            sel = listbox.curselection()
+            return sel[0] if sel else -1
+
+        def committed(idx=None):
+            self._render_at_chips()
+            refresh(idx)
+            self._queue_save("at.commands", self.at_items)
+            say("已保存，共 %d 条" % len(self.at_items), ACCENT)
+
+        def on_add():
+            ok, text = atcmd.add_item(self.at_items, name_var.get(),
+                                      cmd_var.get(), eol_value())
+            if not ok:
+                say(text, DANGER)
+                return
+            committed(len(self.at_items))
+
+        def on_update():
+            idx = current_index()
+            if idx < 0:
+                say("先在列表里选中一条", WARN)
+                return
+            ok, text = atcmd.update_item(self.at_items, idx, name_var.get(),
+                                         cmd_var.get(), eol_value())
+            if not ok:
+                say(text, DANGER)
+                return
+            committed(idx)
+
+        def on_delete():
+            idx = current_index()
+            if idx < 0:
+                say("先在列表里选中一条", WARN)
+                return
+            if not messagebox.askyesno("删除确认",
+                                       "删除「%s」？" % self.at_items[idx]["name"],
+                                       parent=win):
+                return
+            ok, text = atcmd.remove_item(self.at_items, idx)
+            if not ok:
+                say(text, DANGER)
+                return
+            committed(min(idx, max(0, len(self.at_items) - 1)))
+
+        def on_move(delta):
+            idx = current_index()
+            if idx < 0 or not atcmd.move_item(self.at_items, idx, delta):
+                return
+            committed(idx + delta)
+
+        def on_restore():
+            if not messagebox.askyesno("恢复默认",
+                                       "用默认的 6 条 AT 指令覆盖当前列表？",
+                                       parent=win):
+                return
+            atcmd.restore_defaults(self.at_items)
+            committed(0)
+
+        ActionButton(tools, text="新增", variant="primary", padx=_sp(6),
+                     pady=_sp(3), command=on_add).grid(
+            row=0, column=0, padx=_sp(2), sticky="ew")
+        ActionButton(tools, text="保存修改", padx=_sp(6), pady=_sp(3),
+                     command=on_update).grid(
+            row=0, column=1, padx=_sp(2), sticky="ew")
+        ActionButton(tools, text="删除", variant="danger", padx=_sp(6),
+                     pady=_sp(3), command=on_delete).grid(
+            row=0, column=2, padx=_sp(2), sticky="ew")
+        ActionButton(tools, text="上移", padx=_sp(6), pady=_sp(3),
+                     command=lambda: on_move(-1)).grid(
+            row=0, column=3, padx=_sp(2), sticky="ew")
+        ActionButton(tools, text="下移", padx=_sp(6), pady=_sp(3),
+                     command=lambda: on_move(1)).grid(
+            row=0, column=4, padx=_sp(2), sticky="ew")
+        ActionButton(tools, text="恢复默认", padx=_sp(6), pady=_sp(3),
+                     command=on_restore).grid(
+            row=0, column=5, padx=_sp(2), sticky="ew")
+
+        footer = tk.Frame(wrap, bg=PANEL)
+        footer.pack(fill="x", pady=(_sp(10), 0))
+        ttk.Label(footer, text="最多 %d 条 · 改动立即生效并存到 settings.json"
+                  % atcmd.MAX_ITEMS, style="Muted.TLabel").pack(side="left")
+        ActionButton(footer, text="关闭", variant="primary", padx=_sp(16),
+                     pady=_sp(4), command=win.destroy).pack(side="right")
+
+        def on_select(_event=None):
+            idx = current_index()
+            if idx >= 0:
+                load(idx)
+
+        def on_enter(_event=None):
+            if current_index() >= 0:
+                on_update()
+            else:
+                on_add()
+            return "break"
+
+        listbox.bind("<<ListboxSelect>>", on_select)
+        listbox.bind("<Double-Button-1>", lambda e: name_entry.focus_set())
+        name_entry.bind("<Return>", on_enter)
+        cmd_entry.bind("<Return>", on_enter)
+        refresh(0)
+        name_entry.focus_set()
+
+        win.update_idletasks()
+        px = self.root.winfo_rootx() + (self.root.winfo_width() - win.winfo_width()) // 2
+        py = self.root.winfo_rooty() + (self.root.winfo_height() - win.winfo_height()) // 3
+        win.geometry("+%d+%d" % (max(0, px), max(0, py)))
+        try:
+            win.grab_set()
+        except tk.TclError:
+            pass
+
+    # ---------- 开关与布局 ----------
+    def _on_crlf_toggle(self):
+        on = self.crlf_var.get()
+        self.crlf_tip.set_text(CRLF_HINT_ON if on else CRLF_HINT_OFF)
+        self._notify("发送时追加 \\r\\n" if on else "发送时原样输出",
+                     ACCENT if on else WARN)
+
+    def _on_split_motion(self, event):
+        """只有指针真的压在分隔条上才高亮。
+
+        早期用 <Enter> 判断会在窗口刚映射时误触发，整条分隔线一直是强调色，
+        看起来像一条装饰横条而不是可拖拽控件。
+        """
+        if not self._split_ready:
+            return
+        try:
+            band = int(self.split.cget("sashwidth"))
+            center = self.split.sash_coord(0)[1] + band // 2
+        except (tk.TclError, IndexError):
+            return
+        hot = abs(event.y - center) <= band
+        if hot == self._sash_hot:
+            return
+        self._sash_hot = hot
+        try:
+            self.split.configure(bg=MUTED if hot else BORDER)
+        except tk.TclError:
+            pass
+
+    def _on_sash_leave(self, _event=None):
+        self._sash_hot = False
+        try:
+            self.split.configure(bg=BORDER)
+        except tk.TclError:
+            pass
+
+    def _on_sash_release(self, _event=None):
+        if not self._split_ready:
+            return
+        height = self._current_term_height()
+        if height > 0:
+            # 存逻辑像素而不是物理像素，换 125% / 150% 缩放后还原结果才一致
+            self._queue_save("ui.terminal_height",
+                             round(height / max(0.1, self.ui_scale), 1))
+
+    def _current_term_height(self):
+        try:
+            total = self.split.winfo_height()
+            sash = int(self.split.cget("sashwidth"))
+            return max(0, total - self.split.sash_coord(0)[1] - sash)
+        except (tk.TclError, IndexError):
+            return 0
+
+    def _clamp_term_height(self, height, total=None):
+        """把终端高度限制在可用区间。
+
+        下限取 TERM_H_MIN，是因为终端侧栏（发送 / 清空 / 四个开关 / 间隔）
+        大约需要这个高度才能完整显示；旧版本存过更小的值，这里一并抬起来。
+        窗口真的矮到放不下时，才允许下限让步给 high。
+        """
+        total = total or self.split.winfo_height() or _sp(600)
+        high = max(_sp(120), min(int(total * 0.75), total - _sp(TERM_H_MIN_MAIN)))
+        low = min(_sp(TERM_H_MIN), high)
+        return max(low, min(int(height), high))
+
+    def _restore_layout(self):
+        """还原上次的终端高度；窗口还没映射时多等一帧再试。"""
+        self._restore_tries = getattr(self, "_restore_tries", 0) + 1
+        if self._restore_tries > 25:
+            return
+        try:
+            total = self.split.winfo_height()
+            if total < 120:
+                self.root.after(80, self._restore_layout)
+                return
+            saved = self.cfg.get("ui.terminal_height", 0)
+            try:
+                saved = float(saved)
+            except (TypeError, ValueError):
+                saved = 0.0
+            height = saved * self.ui_scale if saved > 0 else _sp(TERM_H_DEFAULT)
+            height = self._clamp_term_height(height, total)
+            sash = int(self.split.cget("sashwidth"))
+            self.split.sash_place(0, 0, max(1, total - height - sash))
+            self._split_ready = True
+        except tk.TclError:
+            pass
+
+    def _queue_save(self, key, value):
+        """先改内存，400ms 内的连续改动只写一次盘。"""
+        self.cfg.set(key, value)
+        if self._save_job is not None:
+            try:
+                self.root.after_cancel(self._save_job)
+            except Exception:
+                pass
+        try:
+            self._save_job = self.root.after(400, self._flush_settings)
+        except tk.TclError:
+            self._save_job = None
+
+    def _flush_settings(self):
+        self._save_job = None
+        if not self.cfg.save():
+            self._log("! 配置保存失败: %s" % self.cfg.last_error)
 
     def _set_status(self, text, tone="muted"):
         """同步状态文字和状态灯，避免多处的视觉状态不一致。"""
@@ -692,14 +1320,17 @@ class MonitorApp:
                     ("Checkbutton.label", {"sticky": "nswe"})]})]})])
 
     def _on_wheel(self, event):
-        """鼠标滚轮只在指针位于左栏时滚动左栏，避免和日志框抢事件。"""
-        c = self.scroll
-        if not c.winfo_ismapped():
-            return
-        px, py = c.winfo_pointerxy()
-        if (c.winfo_rootx() <= px <= c.winfo_rootx() + c.winfo_width()
-                and c.winfo_rooty() <= py <= c.winfo_rooty() + c.winfo_height()):
-            c.yview_scroll(-1 if event.delta > 0 else 1, "units")
+        """滚轮只滚动指针所在的那一栏，避免和日志框抢事件。"""
+        for canvas in (self.scroll, getattr(self, "right_scroll", None)):
+            if canvas is None or not canvas.winfo_ismapped():
+                continue
+            px, py = canvas.winfo_pointerxy()
+            if (canvas.winfo_rootx() <= px
+                    <= canvas.winfo_rootx() + canvas.winfo_width()
+                    and canvas.winfo_rooty() <= py
+                    <= canvas.winfo_rooty() + canvas.winfo_height()):
+                canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+                return
 
     def _scroll_to_radar(self):
         """把左栏滚到底，让雷达图露出来。"""
@@ -1592,6 +2223,19 @@ class MonitorApp:
         self.log.configure(state="disabled")
 
     def on_close(self):
+        # 先把挂起的配置写盘，再停采集线程、断串口，最后销毁窗口
+        if self._save_job is not None:
+            try:
+                self.root.after_cancel(self._save_job)
+            except Exception:
+                pass
+            self._save_job = None
+            self.cfg.save()
+        if self.sys is not None:
+            try:
+                self.sys.stop()
+            except Exception:
+                pass
         self._disconnect(silent=True)
         self.root.destroy()
 

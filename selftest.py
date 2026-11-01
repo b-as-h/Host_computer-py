@@ -14,10 +14,17 @@
 """
 
 import math
+import os
 import sys
+import tempfile
 import time
 import tkinter as tk
 
+# 自检不能碰用户真实配置：把配置目录指到临时目录，跑完即丢
+os.environ.setdefault("STM32HOST_CONFIG_DIR",
+                      tempfile.mkdtemp(prefix="stm32host_selftest_"))
+
+import atcmd
 import host_monitor as hm
 
 
@@ -306,6 +313,57 @@ def main():
     app.gyro_link = False
     c.check("断连显示 OFFLINE",
             app._gyro_status()[0] == "OFFLINE", app._gyro_status())
+
+    print("[9] AT 快捷指令：行尾策略、增删改与状态显示")
+    items = app.at_items
+    c.check("默认 6 条 AT 指令", len(items) == 6, len(items))
+    c.check("默认行尾跟随开关",
+            all(i["eol"] == atcmd.EOL_AUTO for i in items),
+            [i["eol"] for i in items])
+
+    app.crlf_var.set(True)
+    app.at_crlf_var.set(True)
+    app._send_at(0)
+    c.check("AT 开关开 -> AT\\r\\n", app.ser.written[-1] == b"AT\r\n",
+            app.ser.written[-1])
+    app.at_crlf_var.set(False)
+    app._send_at(0)
+    c.check("AT 开关关 -> 原样发送", app.ser.written[-1] == b"AT",
+            app.ser.written[-1])
+    c.check("AT 开关不改变全局 CRLF", app.crlf_var.get() is True)
+
+    app.crlf_var.set(False)
+    app.at_crlf_var.set(True)
+    app._send_at(1)
+    c.check("AT 行尾独立于全局 CRLF",
+            app.ser.written[-1] == b"AT+VERSION?\r\n", app.ser.written[-1])
+    app.crlf_var.set(True)
+
+    n0 = len(items)
+    ok_add, _ = atcmd.add_item(items, "角色", "AT+ROLE?", atcmd.EOL_AUTO)
+    c.check("新增 AT 指令成功", ok_add and len(items) == n0 + 1, len(items))
+    c.check("重名指令被拒绝",
+            not atcmd.add_item(items, "角色", "AT+X", atcmd.EOL_AUTO)[0])
+    c.check("非 ASCII 指令被拒绝",
+            not atcmd.add_item(items, "中文", "AT+名字", atcmd.EOL_AUTO)[0])
+    app._render_at_chips()
+    c.check("按钮随配置重建", len(app.at_btns) == n0 + 1, len(app.at_btns))
+    atcmd.remove_item(items, n0)
+    app._render_at_chips()
+    c.check("删除后按钮同步", len(app.at_btns) == n0, len(app.at_btns))
+
+    c.check("CRLF 开关显示开关状态",
+            "开" in app.crlf_chip.cget("text"), app.crlf_chip.cget("text"))
+    app.crlf_var.set(False)
+    c.check("取消勾选后显示「关」",
+            "关" in app.crlf_chip.cget("text"), app.crlf_chip.cget("text"))
+    app.crlf_var.set(True)
+
+    c.check("分隔条存在", app.split.winfo_exists() == 1)
+    c.check("终端高度在允许范围内",
+            app._current_term_height() >= hm.TERM_H_MIN,
+            app._current_term_height())
+    c.check("AT 指令条存在", app.at_grid.winfo_exists() == 1)
 
     root.destroy()
     return c.summary()

@@ -1,16 +1,16 @@
 {
-  "generated_at": "2026-10-31T12:23:35.043333+08:00",
+  "generated_at": "2026-11-01T17:55:06.576564+08:00",
   "result": "PASS",
   "passed": 55,
   "failed": 0,
   "unit_regression": {
     "passed": true,
-    "summary": "79 通过 / 0 失败",
-    "output": "[1] 发送侧：命令拼装（与 bt.c 的 bt_exec 对齐）\n  OK   发出 PING\n  OK   发出 GET\n  OK   发出 SERVO,90\n  OK   发出 LOCK,1\n  OK   发出 STREAM,1,500\n  OK   发出 BAUD,115200\n  OK   发出 SYS\n  OK   发出 VER\n  OK   发出 RESET\n  OK   关闭自动回车后不加 CRLF\n[2] 接收侧：+DATA 全字段\n  OK   light\n  OK   temp\n  OK   humi\n  OK   chip\n  OK   vdd\n  OK   ax(mg)\n  OK   gx\n  OK   roll\n  OK   pitch\n  OK   lock 同步到复选框\n  OK   servo 同步到滑条\n  OK   左栏已移除舵机读数\n  OK   左栏可滚动\n[3] 接收侧：$D 11 字段遥测帧\n  OK   light\n  OK   temp=25.34\n  OK   gz\n  OK   roll=-12.0\n  OK   pitch=30.0\n  OK   陀螺仪画布不越界\n[4] 兼容性：旧固件 6 字段 $D\n  OK   旧帧能正常解析\n  OK   旧帧不影响陀螺仪字段\n[5] 健壮性：异常帧不应抛异常\n  OK   处理 '$D,'\n  OK   处理 '$D,a,b,c,d,e,f'\n  OK   处理 '+DATA,garbage'\n  OK   处理 '+DATA,light=abc'\n  OK   处理 '-ERR,LOCKED'\n  OK   处理 '-ERR,BAUD'\n  OK   处理 '+OK'\n  OK   处理 '+OK,BAUD'\n  OK   处理 '+PONG'\n  OK   处理 '+SYS,rst=POR,up=1,baud=9600'\n  OK   处理 '+VER,BASH-STM32,1.4.0'\n  OK   处理 '乱码\\x00\\x01'\n[6] 波特率切换流程\n  OK   在旧链路上发 BAUD\n  OK   挂起等待确认\n  OK   确认后清除挂起\n[7] 雷达模式\n  OK   开启时发 RADAR,1,60\n  OK   雷达画布存在\n  OK   角度写入\n  OK   距离落点\n  OK   无回波不落点\n  OK   无回波仍更新角度\n  OK   角度越界被钳到 180\n  OK   雷达画布不越界\n  OK   关闭时发 RADAR,0\n  OK   +OK,RADAR=1 回写复选框\n  OK   +OK,RADAR=0 清除复选框\n  OK   PC 帧以 PC, 开头\n  OK   PC 帧字段齐全\n  OK   PC 帧全是整数（MCU 端不用解析浮点）\n  OK   占用率在 0-100\n  OK   内存总量为正\n  OK   PC 帧长度适合 9600 波特率\n  OK   推送期间吞掉 -ERR,UNKNOWN\n  OK   固件不支持只提示一次\n  OK   未推送时 -ERR 照常记录\n[8] 3D 姿态仪：数据触发、缓动、异常与断连\n  OK   +DATA 更新姿态目标\n  OK   首帧直接对齐显示姿态\n  OK   在线状态为 LIVE\n  OK   单帧 33ms 即产生可感知响应\n  OK   约 0.5 秒平滑收敛到目标\n  OK   跨越 ±180° 时走最短方向\n  OK   NaN 姿态不污染目标\n  OK   非法帧显示 DATA ERR\n  OK   +DATA 中的 NaN 不抛异常\n  OK   +DATA 中的 NaN 保留上一目标\n  OK   横滚归一化且俯仰钳位\n  OK   超过 2 秒无帧显示 HOLD\n  OK   断连显示 OFFLINE\n\n结果: 79 通过 / 0 失败\n"
+    "summary": "95 通过 / 0 失败",
+    "output": "[1] 发送侧：命令拼装（与 bt.c 的 bt_exec 对齐）\n  OK   发出 PING\n  OK   发出 GET\n  OK   发出 SERVO,90\n  OK   发出 LOCK,1\n  OK   发出 STREAM,1,500\n  OK   发出 BAUD,115200\n  OK   发出 SYS\n  OK   发出 VER\n  OK   发出 RESET\n  OK   关闭自动回车后不加 CRLF\n[2] 接收侧：+DATA 全字段\n  OK   light\n  OK   temp\n  OK   humi\n  OK   chip\n  OK   vdd\n  OK   ax(mg)\n  OK   gx\n  OK   roll\n  OK   pitch\n  OK   lock 同步到复选框\n  OK   servo 同步到滑条\n  OK   左栏已移除舵机读数\n  OK   左栏可滚动\n[3] 接收侧：$D 11 字段遥测帧\n  OK   light\n  OK   temp=25.34\n  OK   gz\n  OK   roll=-12.0\n  OK   pitch=30.0\n  OK   陀螺仪画布不越界\n[4] 兼容性：旧固件 6 字段 $D\n  OK   旧帧能正常解析\n  OK   旧帧不影响陀螺仪字段\n[5] 健壮性：异常帧不应抛异常\n  OK   处理 '$D,'\n  OK   处理 '$D,a,b,c,d,e,f'\n  OK   处理 '+DATA,garbage'\n  OK   处理 '+DATA,light=abc'\n  OK   处理 '-ERR,LOCKED'\n  OK   处理 '-ERR,BAUD'\n  OK   处理 '+OK'\n  OK   处理 '+OK,BAUD'\n  OK   处理 '+PONG'\n  OK   处理 '+SYS,rst=POR,up=1,baud=9600'\n  OK   处理 '+VER,BASH-STM32,1.4.0'\n  OK   处理 '乱码\\x00\\x01'\n[6] 波特率切换流程\n  OK   在旧链路上发 BAUD\n  OK   挂起等待确认\n  OK   确认后清除挂起\n[7] 雷达模式\n  OK   开启时发 RADAR,1,60\n  OK   雷达画布存在\n  OK   角度写入\n  OK   距离落点\n  OK   无回波不落点\n  OK   无回波仍更新角度\n  OK   角度越界被钳到 180\n  OK   雷达画布不越界\n  OK   关闭时发 RADAR,0\n  OK   +OK,RADAR=1 回写复选框\n  OK   +OK,RADAR=0 清除复选框\n  OK   PC 帧以 PC, 开头\n  OK   PC 帧字段齐全\n  OK   PC 帧全是整数（MCU 端不用解析浮点）\n  OK   占用率在 0-100\n  OK   内存总量为正\n  OK   PC 帧长度适合 9600 波特率\n  OK   推送期间吞掉 -ERR,UNKNOWN\n  OK   固件不支持只提示一次\n  OK   未推送时 -ERR 照常记录\n[8] 3D 姿态仪：数据触发、缓动、异常与断连\n  OK   +DATA 更新姿态目标\n  OK   首帧直接对齐显示姿态\n  OK   在线状态为 LIVE\n  OK   单帧 33ms 即产生可感知响应\n  OK   约 0.5 秒平滑收敛到目标\n  OK   跨越 ±180° 时走最短方向\n  OK   NaN 姿态不污染目标\n  OK   非法帧显示 DATA ERR\n  OK   +DATA 中的 NaN 不抛异常\n  OK   +DATA 中的 NaN 保留上一目标\n  OK   横滚归一化且俯仰钳位\n  OK   超过 2 秒无帧显示 HOLD\n  OK   断连显示 OFFLINE\n[9] AT 快捷指令：行尾策略、增删改与状态显示\n  OK   默认 6 条 AT 指令\n  OK   默认行尾跟随开关\n  OK   AT 开关开 -> AT\\r\\n\n  OK   AT 开关关 -> 原样发送\n  OK   AT 开关不改变全局 CRLF\n  OK   AT 行尾独立于全局 CRLF\n  OK   新增 AT 指令成功\n  OK   重名指令被拒绝\n  OK   非 ASCII 指令被拒绝\n  OK   按钮随配置重建\n  OK   删除后按钮同步\n  OK   CRLF 开关显示开关状态\n  OK   取消勾选后显示「关」\n  OK   分隔条存在\n  OK   终端高度在允许范围内\n  OK   AT 指令条存在\n\n结果: 95 通过 / 0 失败\n"
   },
   "long_stages": {
     "陀螺仪": {
-      "duration": 6.4,
+      "duration": 6.42,
       "frames": 53,
       "states": [
         "DATA ERR",
@@ -43,17 +43,17 @@
     {
       "name": "基础通信与控件",
       "module": "基础通信",
-      "duration": 0.906
+      "duration": 0.903
     },
     {
       "name": "陀螺仪 · 5 秒动态与状态迁移",
       "module": "陀螺仪",
-      "duration": 6.401
+      "duration": 6.419
     },
     {
       "name": "温度曲线 · 5 秒持续采样",
       "module": "温度曲线",
-      "duration": 5.608
+      "duration": 5.606
     },
     {
       "name": "超声波雷达 · 5 秒扫描",
@@ -63,7 +63,7 @@
     {
       "name": "断连、恢复与最终汇总",
       "module": "异常恢复",
-      "duration": 1.222
+      "duration": 1.223
     }
   ],
   "cases": [
@@ -71,7 +71,7 @@
       "module": "协议单元回归",
       "case": "selftest.py 完整回归",
       "passed": true,
-      "detail": "79 通过 / 0 失败"
+      "detail": "95 通过 / 0 失败"
     },
     {
       "module": "界面与 DPI",
@@ -167,7 +167,7 @@
       "module": "日志与反馈",
       "case": "时间戳前缀与清空功能",
       "passed": true,
-      "detail": "12:23:14 timestamp check"
+      "detail": "17:54:45 timestamp check"
     },
     {
       "module": "异常恢复",
@@ -251,13 +251,13 @@
       "module": "基础通信",
       "case": "基础阶段时长有效",
       "passed": true,
-      "detail": "0.91s"
+      "detail": "0.90s"
     },
     {
       "module": "陀螺仪",
       "case": "持续展示不少于 5 秒",
       "passed": true,
-      "detail": "6.40s"
+      "detail": "6.42s"
     },
     {
       "module": "陀螺仪",
@@ -269,7 +269,7 @@
       "module": "陀螺仪",
       "case": "姿态画面持续变化",
       "passed": true,
-      "detail": "47"
+      "detail": "51"
     },
     {
       "module": "陀螺仪",
