@@ -360,9 +360,11 @@ def main():
     app.crlf_var.set(True)
 
     c.check("分隔条存在", app.split.winfo_exists() == 1)
+    # TERM_H_MIN 是 96 DPI 设计值，_current_term_height() 返回物理像素，
+    # 在 90% / 125% 缩放的机器上直接比较会误判，必须过一遍 _sp()
     c.check("终端高度在允许范围内",
-            app._current_term_height() >= hm.TERM_H_MIN,
-            app._current_term_height())
+            app._current_term_height() >= hm._sp(hm.TERM_H_MIN) - 2,
+            (app._current_term_height(), hm._sp(hm.TERM_H_MIN), app.ui_scale))
     c.check("AT 指令条存在", app.at_grid.winfo_exists() == 1)
 
     root.destroy()

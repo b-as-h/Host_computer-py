@@ -31,7 +31,15 @@ jobs:
           python -m pip install -r requirements.txt -r requirements-dev.txt
 
       - name: 离线自检（95 项协议与布局断言）
-        run: python selftest.py
+        shell: pwsh
+        run: |
+          $out = & python selftest.py 2>&1 | Out-String
+          Write-Host $out
+          if ($LASTEXITCODE -ne 0) {
+            $tail = ($out -split "`n" | Select-Object -Last 25) -join "%0A"
+            Write-Host "::error title=selftest 失败::$tail"
+            exit 1
+          }
 
       - name: 打包单文件 exe
         run: >
