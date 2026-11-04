@@ -6,11 +6,11 @@
 - 固件协议：`Core/Src/bt.c`、`Core/Inc/bt.h`（固件工程不在本仓库）
 - 界面技术：Python + Tkinter，无前端构建步骤
 - 显示适配：Windows Per-Monitor V2 DPI，1080p / 2K 自适应
-- 当前版本：**v1.10.0**
-- 安装包：[STM32Host-Setup-1.10.0.exe](https://github.com/b-as-h/Host_computer-py/releases/download/v1.10.0/STM32Host-Setup-1.10.0.exe)（约 13 MB）
-- 绿色版：[STM32Host.exe](https://github.com/b-as-h/Host_computer-py/releases/download/v1.10.0/STM32Host.exe)（约 11 MB，免安装）
-- 校验文件：[SHA256SUMS.txt](https://github.com/b-as-h/Host_computer-py/releases/download/v1.10.0/SHA256SUMS.txt)
-- 发布说明：<https://github.com/b-as-h/Host_computer-py/releases/tag/v1.10.0>
+- 当前版本：**v1.11.0**
+- 安装包：[STM32Host-Setup-1.11.0.exe](https://github.com/b-as-h/Host_computer-py/releases/download/v1.11.0/STM32Host-Setup-1.11.0.exe)（约 13 MB）
+- 绿色版：[STM32Host.exe](https://github.com/b-as-h/Host_computer-py/releases/download/v1.11.0/STM32Host.exe)（约 11 MB，免安装）
+- 校验文件：[SHA256SUMS.txt](https://github.com/b-as-h/Host_computer-py/releases/download/v1.11.0/SHA256SUMS.txt)
+- 发布说明：<https://github.com/b-as-h/Host_computer-py/releases/tag/v1.11.0>
 
 ---
 
@@ -41,7 +41,7 @@
 ### 方式一：安装包（推荐）
 
 1. 打开 [Releases](https://github.com/b-as-h/Host_computer-py/releases/latest)，下载
-   `STM32Host-Setup-1.10.0.exe`。
+   `STM32Host-Setup-1.11.0.exe`。
 2. 双击安装包。当前安装包未购买代码签名证书，Windows SmartScreen 可能提示
    “Windows 已保护你的电脑”，点 **更多信息 → 仍要运行** 即可。
 3. 选择安装位置。默认安装到 `%LOCALAPPDATA%\Programs\STM32Host`，
@@ -131,9 +131,9 @@ installer\build_installer.bat
 脚本依次完成：
 
 1. 安装 pyserial 与 PyInstaller；
-2. PyInstaller 生成 `dist\STM32Host.exe`（单文件，含图标与 1.10.0 版本信息）；
+2. PyInstaller 生成 `dist\STM32Host.exe`（单文件，含图标与 1.11.0 版本信息）；
 3. Inno Setup 编译 `installer\STM32Host.iss`，生成
-   `dist\STM32Host-Setup-1.10.0.exe`。
+   `dist\STM32Host-Setup-1.11.0.exe`。
 
 只重新生成 exe：
 
@@ -149,8 +149,8 @@ pyinstaller --noconfirm --clean --onefile --windowed --icon app.ico ^
 挂到 Release」，不需要本地装 Python 或 Inno Setup：
 
 ```bat
-git tag v1.10.0
-git push origin v1.10.0
+git tag v1.11.0
+git push origin v1.11.0
 ```
 
 工作流文件：`.github/workflows/release.yml`。推送到 `main` 时只构建并存 14 天产物（不发布），
@@ -181,6 +181,7 @@ git push origin v1.10.0
 | `sysinfo.py` | 本机性能采集（CPU/GPU/内存/网络/FPS/温度），纯 ctypes，可单独 `python sysinfo.py` 自测 |
 | `appconfig.py` | 配置读写：JSON + 原子写 + 损坏回退，纯标准库 |
 | `atcmd.py` | AT 快捷指令的数据模型：默认表、校验、增删改、行尾策略 |
+| `btlink.py` | 蓝牙链路：扫描 / 配对 / 启用 SPP 服务 / 定位配对后生成的 COM 口，纯 ctypes，可单独 `python btlink.py` 自测 |
 | `run_host.bat` | 启动器，负责选解释器、装依赖、拉起界面 |
 | `selftest.py` | 离线自检，不需要开发板和串口，验证协议解析是否正常 |
 | `tools/system_test.py` | 前台系统级自动化测试，覆盖长时可视化、边界与异常场景 |
@@ -191,7 +192,7 @@ git push origin v1.10.0
 | `requirements.txt` | 运行依赖（pyserial） |
 | `requirements-dev.txt` | 开发与打包依赖（PyInstaller） |
 | `installer/STM32Host.iss` | Inno Setup 7 安装脚本（中文向导、快捷方式、卸载项） |
-| `installer/version_info.txt` | exe 文件版本信息（1.10.0） |
+| `installer/version_info.txt` | exe 文件版本信息（1.11.0） |
 | `installer/build_installer.bat` | 一键构建 exe 与安装包 |
 | `installer/ChineseSimplified.isl` | 简体中文安装向导语言包（官方 Inno 不保证自带，随仓库携带） |
 | `.github/workflows/release.yml` | CI：推标签自动构建并发布到 Releases |
@@ -212,23 +213,48 @@ git push origin v1.10.0
 | Python | 仅源码运行需要；Python 3.9+ 64 位，且安装时勾选 `tcl/tk and IDLE` |
 | 依赖 | pyserial（安装包已内置；源码模式由启动器自动安装） |
 | 显示 | 1080p 及以上；支持 100% / 125% / 150% 系统缩放 |
-| 硬件 | 蓝牙模块已与电脑配对，或 USB-TTL 直连开发板 |
+| 硬件 | 蓝牙适配器（笔记本一般自带）+ HC-05 / HC-06 模块，或 USB-TTL 直连开发板 |
 
 ## 四、连接步骤
 
+### 方式一：程序内一键配对（推荐）
+
+经典蓝牙（HC-05 / HC-06、开了 SPP 的 ESP32）在配对之前，Windows 根本
+不会分配 COM 口，所以以前必须先跳系统设置配对。现在这一步可以在程序里做完：
+
 1. 给开发板上电，HC-05 指示灯慢闪表示未配对。
+2. 点顶部工具条的 **「蓝牙」**，弹窗先列出系统已知的设备（毫秒级）。
+3. 点 **「扫描附近」**，等 5 秒左右，找到你的模块（名字通常是 `HC-05`，
+   也可能被 AT 指令改过）。扫描在后台线程跑，主界面不卡。
+4. 确认「配对码」是 `1234`（部分模块是 `0000`），选中设备后点
+   **「配对并连接」**，或直接双击那一行。
+5. 程序依次完成：配对 → 启用串口服务 → 等系统分配 COM 口 → 回填端口 →
+   连接设备。日志里会出现 `蓝牙：配对成功，串口 COMx`，随后自动发 `PING`。
+
+失败会给具体原因（模块没上电、PIN 不对、系统拒绝等），不会静默失败。
+要换模块或重新配对，在同一个窗口点 **「删除配对」**。
+
+> 系统不接受带 PIN 的静默配对时，程序会自动退到 Windows 自己的配对窗
+> （只需在那一个窗口输一次 PIN），比翻设置页还是快得多。
+
+### 方式二：先在系统里配对
+
+1. 给开发板上电。
 2. Windows → 设置 → 蓝牙和其他设备 → 添加设备 → 选 `HC-05`，配对码通常是 `1234` 或 `0000`。
 3. 配对后打开设备管理器 → 端口（COM 和 LPT），会出现**两个**口：一个「传入」、一个「传出」，选**传出**那个（例如 `COM5`）。
-4. 上位机选串口、选波特率，点「连接」。
+4. 回到上位机点「刷新」：蓝牙口会自动排在列表最前并带 `[蓝牙]` 标注，直接选它连接。
 5. 程序会自动发一条 `PING`，日志里出现 `+PONG` 说明链路通了。
 
 > 没有蓝牙模块时，用 USB-TTL 也行：模块 TX 接 PA10、RX 接 PA9，共地，插上 USB 后直接选新出现的 COM 口。
+
+> 端口列表按「蓝牙 > USB 串口 > 主板自带口」排序，程序启动时会自动选回
+> 上次连过的那个口（`settings.json` 里的 `link.last_port`），不用每次翻下拉框。
 
 ## 五、界面说明
 
 | 区域 | 内容 |
 |---|---|
-| 顶部 | 产品标题、连接状态灯、串口下拉、刷新、**波特率下拉**、同步设备速率、连接 |
+| 顶部 | 产品标题、连接状态灯、串口下拉、刷新、**蓝牙**（扫描/配对弹窗）、**波特率下拉**、同步设备速率、连接 |
 | 左栏顶部 | **电脑状态圆环**：CPU / GPU / RAM / NET / FPS，程序一打开就开始刷新，与串口是否连接无关 |
 | 左栏 | 光照、温度、湿度、片内温度、供电电压、三轴加速度、**温度曲线 + 3D 姿态仪**（并排对齐）、**雷达视图**（在曲线下方，滚轮下滚查看） |
 | 右栏 | 舵机角度滑条、舵机锁定、周期遥测开关、**雷达模式开关**、**发送电脑数据开关**、快捷命令（PING / GET / HELP）；内容超出高度时纵向滚动，不会被裁掉 |
@@ -509,6 +535,7 @@ PC,cpu=21,mem=63,gpu=6,ct=-1,gt=-1,cf=4007,gc=-1,ru=101,rt=160,dn=7,up=12,fps=75
 
 | 版本 | 内容 |
 |---|---|
+| v1.11.0 | 新增**程序内蓝牙配对**：顶部「蓝牙」按钮打开设备窗口，扫描附近设备（含未配对的 HC-05）、按 PIN 静默配对、自动启用 SPP 服务、等系统分配 COM 口后回填并连接，全程不用跳系统设置；新增 `btlink.py`（纯 ctypes 封装 BluetoothAPIs.dll 与 bthprops.cpl，零第三方依赖）与 `tools/bt_selftest.py`；端口下拉框改为「蓝牙 > USB 串口 > 主板口」排序并给蓝牙口加 `[蓝牙]` 标注，自动选回上次连接的端口（`link.last_port`）；自检扩展到 113 项 |
 | v1.10.0 | 发送后缀改为带「开 / 关」文字的胶囊开关，状态一眼可见；新增可配置 **AT 快捷指令栏**（默认 6 条、增删改、排序、恢复默认、独立「AT 自动回车」开关、行尾策略、悬停提示）；主区与终端之间改为**可拖拽分隔条**并记住高度；快捷命令精简为 PING / GET / HELP；新增 `appconfig.py` / `atcmd.py` 两个纯逻辑模块，配置原子写盘并在损坏时自动隔离；关闭时停止性能采集线程；自检扩展到 95 项；终端卡片改为「左侧输入 + 日志 / 右侧操作栏」两栏布局，发送与清空按钮、四个开关竖向收纳，日志字号降到 9pt 且默认高度提升到 300px；分隔条 9px→5px 且不再使用强调色；右栏内容超高时可滚动，任意窗口尺寸下不再出现控件被裁 |
 | v1.9.0 | 新增 **Inno Setup 7 一键安装包**（中文向导、开始菜单/桌面快捷方式、标准卸载项、按用户安装）；exe 写入 1.9.0 文件版本信息；补充 `requirements.txt` / `requirements-dev.txt` 与可复现构建脚本；清理 `__pycache__`、旧构建临时目录和误建空文件；README 增加安装、卸载、构建与 SmartScreen 说明 |
 | v1.8 | 新增前台系统测试台：55 项 E2E 覆盖通信、控制、传感器、界面、异常恢复；陀螺仪、温度曲线、雷达长时验证均超过 5 秒；自动生成模块报告、JSON 和阶段截图；修复温度曲线平滑线及标签 1px 越界 |

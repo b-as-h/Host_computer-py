@@ -17,12 +17,12 @@ VSVersionInfo(
           [
             StringStruct('CompanyName', 'b-as-h'),
             StringStruct('FileDescription', 'STM32 Host desktop monitor and serial terminal'),
-            StringStruct('FileVersion', '1.10.0.0'),
+            StringStruct('FileVersion', '1.11.0.0'),
             StringStruct('InternalName', 'STM32Host'),
             StringStruct('LegalCopyright', 'Copyright (c) 2026 b-as-h'),
             StringStruct('OriginalFilename', 'STM32Host.exe'),
             StringStruct('ProductName', 'STM32 Host'),
-            StringStruct('ProductVersion', '1.10.0')
+            StringStruct('ProductVersion', '1.11.0')
           ]
         )
       ]

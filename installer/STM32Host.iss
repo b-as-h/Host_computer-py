@@ -1,9 +1,9 @@
 ﻿; STM32 Host 上位机 - Inno Setup 7 安装脚本
 ; 编译：ISCC.exe installer\STM32Host.iss
-; 产物：dist\STM32Host-Setup-1.10.0.exe
+; 产物：dist\STM32Host-Setup-1.11.0.exe
 
 #define MyAppName "STM32 Host 上位机"
-#define MyAppVersion "1.10.0"
+#define MyAppVersion "1.11.0"
 #define MyAppPublisher "b-as-h"
 #define MyAppURL "https://github.com/b-as-h/Host_computer-py"
 #define MyAppExeName "STM32Host.exe"

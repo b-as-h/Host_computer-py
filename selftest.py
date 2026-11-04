@@ -375,6 +375,77 @@ def main():
             (app._current_term_height(), hm._sp(hm.TERM_H_MIN), app.ui_scale))
     c.check("AT 指令条存在", app.at_grid.winfo_exists() == 1)
 
+    print("[10] 蓝牙链路：地址解析、端口识别与排序")
+    bt = hm.btlink
+    c.check("btlink 模块已加载", bt is not None)
+
+    val = bt.mac_to_ulonglong("68:62:8A:A0:5B:A0")
+    c.check("MAC 转整数", val == 0x68628AA05BA0, hex(val) if val else val)
+    c.check("整数转回 MAC 往返一致",
+            bt.ulonglong_to_mac(val) == "68:62:8A:A0:5B:A0",
+            bt.ulonglong_to_mac(val))
+    c.check("非法 MAC 返回 None", bt.mac_to_ulonglong("ZZ:11:22:33:44:55") is None)
+
+    # 关键坑：GUID 尾巴 00805F9B34FB 长得像 MAC，不能被当成设备地址
+    c.check("GUID 片段不被误认为 MAC",
+            bt.mac_from_hwid(r"BTHENUM\{00001101-0000-1000-8000-00805F9B34FB}"
+                             r"_LOCALMFG&0000\7&2A0A8B1&0&000000000000_00000000")
+            == "")
+    c.check("从 BTHENUM hwid 提取 MAC",
+            bt.mac_from_hwid(r"BTHENUM\{00001101-0000-1000-8000-00805F9B34FB}"
+                             r"_LOCALMFG&0002\7&1A2B3C4D&0&001122334455_C00000000")
+            == "00:11:22:33:44:55")
+
+    class _FakePort:
+        def __init__(self, device, desc, hwid):
+            self.device = device
+            self.description = desc
+            self.hwid = hwid
+
+    real_comports = hm.list_ports.comports
+    hm.list_ports.comports = lambda: [
+        _FakePort("COM1", "通信端口 (COM1)", "ACPI\\PNP0501\\0"),
+        _FakePort("COM3", "USB-SERIAL CH340 (COM3)", "USB VID:PID=1A86:7523"),
+        _FakePort("COM7", "Standard Serial over Bluetooth link (COM7)",
+                  r"BTHENUM\{00001101-0000-1000-8000-00805F9B34FB}"
+                  r"_LOCALMFG&0002\7&1A2B3C4D&0&001122334455_C00000000"),
+    ]
+    try:
+        app.last_port = ""
+        app.port_var.set("")
+        app._refresh_ports()
+        vals = list(app.port_box["values"])
+        c.check("蓝牙口排最前", vals and vals[0].startswith("COM7"), vals)
+        c.check("USB 串口排第二", len(vals) > 1 and vals[1].startswith("COM3"), vals)
+        c.check("蓝牙口带 [蓝牙] 标注", vals and "[蓝牙]" in vals[0], vals)
+        c.check("标注不影响取设备名", vals[0].split()[0] == "COM7",
+                vals[0].split()[0] if vals else None)
+        c.check("有蓝牙口时自动选中它", app.port_var.get().startswith("COM7"),
+                app.port_var.get())
+        c.check("port_meta 记录了蓝牙 MAC",
+                app.port_meta.get("COM7", {}).get("mac") == "00:11:22:33:44:55",
+                app.port_meta.get("COM7"))
+        c.check("port_meta 标记了蓝牙属性",
+                app.port_meta.get("COM7", {}).get("bluetooth") is True)
+        c.check("主板口不被当成 USB 口",
+                app.port_meta.get("COM1", {}).get("usb") is False)
+
+        app._refresh_ports(prefer="COM3")
+        c.check("prefer 参数可指定选中口", app.port_var.get().startswith("COM3"),
+                app.port_var.get())
+        app._refresh_ports("COM3")
+        c.check("prefer 收到裸端口名也可以", app.port_var.get().startswith("COM3"),
+                app.port_var.get())
+    finally:
+        hm.list_ports.comports = real_comports
+        app.last_port = ""
+        app.port_var.set("")
+        app._refresh_ports()
+
+    c.check("_open_bt_panel 存在且可调用",
+            callable(getattr(app, "_open_bt_panel", None)))
+    c.check("蓝牙窗口类已定义", hasattr(hm, "BluetoothPanel"))
+
     root.destroy()
     return c.summary()
 

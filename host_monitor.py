@@ -42,9 +42,14 @@ except Exception:           # 采集模块不可用不影响串口功能
 
 import appconfig           # 配置持久化（纯标准库）
 import atcmd               # AT 快捷指令模型（纯标准库）
+import btlink              # 蓝牙扫描/配对/SPP 定位（纯 ctypes）
 
 BAUD_CHOICES = ["9600", "19200", "38400", "57600", "115200"]
 DEFAULT_BAUD = "9600"
+# 端口排序时用来认出「USB 转串口」的常见芯片描述：这类口才是开发板
+# 真正常用的，排在内置 16550 通信端口前面，省得每次开程序都要翻下拉框
+USB_HINTS = ("CH340", "CH341", "CH343", "CH9102", "CP210", "FTDI", "FT232",
+             "PL2303", "USB-SERIAL", "USB SERIAL", "USB 串行")
 HISTORY = 120
 FLOAT_KEYS = ("temp", "chip", "roll", "pitch")
 RADAR_MAX_CM = 200          # 雷达视图量程，超过的点压在边缘
@@ -378,6 +383,314 @@ def _fmt_speed(kbs):
     return "%.0fK" % kbs
 
 
+class BluetoothPanel(tk.Toplevel):
+    """蓝牙设备扫描与配对窗口。
+
+    为什么需要这一层：经典蓝牙（HC-05/HC-06、开了 SPP 的 ESP32）在配对
+    之前 Windows 根本不会分配 COM 口，主界面的端口下拉框里永远是空的。
+    这里把「扫描 → 配对 → 启用串口服务 → 等 COM 口出现 → 回填主窗口并
+    连接」串成一条流水线，用户只需要点两下，不用跳系统设置翻菜单。
+
+    线程模型：inquiry 扫描和配对都是阻塞调用（配对常见 3~15 秒），全部
+    丢进后台线程；结果通过 ``_post()`` 投进队列，由主线程的 ``_drain``
+    取出执行。跨线程直接调 Tk 在少数情况下会让进程崩掉，主界面
+    ``_read_loop`` 也是走 queue，这里保持一致。
+    """
+
+    COLUMNS = (("name", "设备名", 210), ("mac", "地址", 140), ("state", "状态", 96))
+
+    def __init__(self, app):
+        super().__init__(app.root)
+        self.app = app
+        self.devices = []
+        self.busy = False
+        self.uiq = queue.Queue()
+        self._drain_job = None
+
+        self.title("蓝牙设备")
+        self.configure(bg=BG)
+        self.transient(app.root)
+        self.minsize(_sp(560), _sp(380))
+        self._center(_sp(680), _sp(440))
+
+        self._build()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.bind("<Escape>", lambda _e: self._on_close())
+        self.after(60, lambda: self._refresh(inquiry=False))
+        self._drain_job = self.after(80, self._drain)
+
+    # ---------- 布局 ----------
+    def _center(self, w, h):
+        root = self.app.root
+        try:
+            root.update_idletasks()
+            x = root.winfo_rootx() + max(0, (root.winfo_width() - w) // 2)
+            y = root.winfo_rooty() + max(0, (root.winfo_height() - h) // 3)
+        except tk.TclError:
+            x = y = 80
+        self.geometry("%dx%d+%d+%d" % (w, h, max(0, x), max(0, y)))
+
+    def _build(self):
+        wrap = tk.Frame(self, bg=PANEL, padx=_sp(16), pady=_sp(14))
+        wrap.pack(fill="both", expand=True, padx=_sp(10), pady=_sp(10))
+
+        head = tk.Frame(wrap, bg=PANEL)
+        head.pack(fill="x")
+        ttk.Label(head, text="附近的蓝牙设备", style="Section.TLabel").pack(side="left")
+        info = btlink.radio_info() or {}
+        ttk.Label(head, text="本机 %s · %s" % (info.get("name", "-"),
+                                              info.get("mac", "-")),
+                  style="Muted.TLabel").pack(side="right")
+
+        box = tk.Frame(wrap, bg=BORDER, padx=1, pady=1)
+        box.pack(fill="both", expand=True, pady=(_sp(8), _sp(10)))
+
+        style = ttk.Style()
+        style.configure("Bt.Treeview", background=INPUT, fieldbackground=INPUT,
+                        foreground=FG, borderwidth=0, rowheight=_sp(24),
+                        font=(FONT_MONO, 10))
+        style.map("Bt.Treeview", background=[("selected", ACCENT)],
+                  foreground=[("selected", "#10231d")])
+        style.configure("Bt.Treeview.Heading", background=PANEL_ALT,
+                        foreground=MUTED, borderwidth=0,
+                        font=(FONT_UI, 9, "bold"))
+        style.map("Bt.Treeview.Heading", background=[("active", PANEL_ALT)])
+
+        self.tree = ttk.Treeview(box, columns=[c[0] for c in self.COLUMNS],
+                                 show="headings", style="Bt.Treeview",
+                                 selectmode="browse")
+        for key, title, width in self.COLUMNS:
+            self.tree.heading(key, text=title)
+            self.tree.column(key, width=_sp(width), anchor="w",
+                             stretch=(key == "name"))
+        sb = ttk.Scrollbar(box, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        self.tree.pack(side="left", fill="both", expand=True)
+        self.tree.bind("<Double-1>", lambda _e: self._pair_and_connect())
+        self.tree.bind("<<TreeviewSelect>>", self._on_select)
+
+        row = tk.Frame(wrap, bg=PANEL)
+        row.pack(fill="x")
+        ttk.Label(row, text="配对码", style="Muted.TLabel").pack(side="left")
+        self.pin_var = tk.StringVar(value="1234")
+        ttk.Entry(row, textvariable=self.pin_var, width=7,
+                  font=(FONT_MONO, 10)).pack(side="left",
+                                             padx=(_sp(6), _sp(14)))
+        self.scan_btn = ActionButton(row, text="扫描附近", variant="secondary",
+                                     command=lambda: self._refresh(inquiry=True))
+        self.scan_btn.pack(side="left")
+        self.unpair_btn = ActionButton(row, text="删除配对", variant="ghost",
+                                       command=self._unpair)
+        self.unpair_btn.pack(side="right")
+        self.pair_btn = ActionButton(row, text="配对并连接", variant="primary",
+                                     command=self._pair_and_connect)
+        self.pair_btn.pack(side="right", padx=(0, _sp(6)))
+
+        self.hint = tk.Label(wrap, text="正在读取设备列表…", bg=PANEL, fg=MUTED,
+                             font=(FONT_UI, 9), anchor="w", justify="left",
+                             wraplength=_sp(630))
+        self.hint.pack(fill="x", pady=(_sp(8), 0))
+
+    # ---------- 线程桥 ----------
+    def _post(self, fn):
+        """后台线程 → 主线程。所有控件更新都必须走这里。"""
+        self.uiq.put(fn)
+
+    def _drain(self):
+        while True:
+            try:
+                fn = self.uiq.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                fn()
+            except Exception:      # noqa: BLE001 - 单个回调炸了不能停掉整个泵
+                pass
+        try:
+            if self.winfo_exists():
+                self._drain_job = self.after(80, self._drain)
+        except tk.TclError:
+            pass
+
+    # ---------- 扫描 ----------
+    def _refresh(self, inquiry=False):
+        if self.busy:
+            return
+        self.busy = True
+        self.scan_btn.set_loading(True, "扫描中…")
+        self._hint("正在扫描附近设备，约 5 秒…" if inquiry else "读取设备列表…")
+        want = bool(inquiry)
+
+        def worker():
+            err = ""
+            try:
+                devs = btlink.scan(inquiry=want, seconds=6)
+            except Exception as exc:      # noqa: BLE001
+                devs, err = [], str(exc)
+            self._post(lambda: self._on_scanned(devs, err))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_scanned(self, devs, err):
+        self.busy = False
+        self.scan_btn.set_loading(False)
+        if err:
+            self._hint("扫描失败：%s" % err, DANGER)
+            return
+        self.devices = devs
+        self.tree.delete(*self.tree.get_children())
+        for dev in devs:
+            self.tree.insert("", "end",
+                             values=(dev.name, dev.mac, self._state_text(dev)))
+        self._select_likely()
+        if not devs:
+            self._hint("附近没有发现设备。确认模块已上电、指示灯在闪，"
+                       "再点一次「扫描附近」。", WARN)
+        else:
+            paired = sum(1 for d in devs if d.paired)
+            self._hint("共 %d 个设备（已配对 %d）· 选中后点「配对并连接」"
+                       % (len(devs), paired))
+
+    @staticmethod
+    def _state_text(dev):
+        if dev.connected:
+            return "已连接"
+        return "已配对" if dev.paired else "未配对"
+
+    def _select_likely(self):
+        """默认选中「最可能是串口模块且还没配对的」那一行。"""
+        children = self.tree.get_children()
+        if not children:
+            return
+        pick = 0
+        for i, dev in enumerate(self.devices):
+            if dev.looks_like_spp:
+                pick = i
+                if not dev.paired:
+                    break
+        self.tree.selection_set(children[pick])
+        self.tree.see(children[pick])
+
+    def _selected(self):
+        sel = self.tree.selection()
+        if not sel:
+            return None
+        idx = self.tree.index(sel[0])
+        return self.devices[idx] if 0 <= idx < len(self.devices) else None
+
+    def _on_select(self, _event=None):
+        dev = self._selected()
+        if dev is None:
+            return
+        kind = " · %s" % dev.kind if dev.kind else ""
+        if dev.paired:
+            self._hint("%s（%s）已配对，可直接「连接设备」"
+                       % (dev.name, dev.mac), MUTED)
+        else:
+            self._hint("%s（%s）%s · 未配对，PIN 一般 1234 或 0000"
+                       % (dev.name, dev.mac, kind), MUTED)
+
+    # ---------- 配对 ----------
+    def _pair_and_connect(self):
+        if self.busy:
+            return
+        dev = self._selected()
+        if dev is None:
+            self._hint("先在列表里选一个设备", WARN)
+            return
+
+        self.busy = True
+        self.pair_btn.set_loading(True, "配对中…")
+        self._hint("正在配对 %s …首次配对可能要 10 秒" % dev.name)
+
+        pin = (self.pin_var.get() or "").strip() or "1234"
+        mac, name = dev.mac, dev.name
+        before = btlink.port_snapshot()   # 差分基线，配对后新冒出来的就是它
+
+        def worker():
+            try:
+                ok, msg = btlink.pair(mac, pin)
+                if not ok:
+                    self._post(lambda m=msg: self._finish(False, "%s：%s" % (name, m)))
+                    return
+                ok_spp, msg_spp = btlink.enable_spp(mac)
+                port = btlink.wait_spp_port(mac, before, timeout=10)
+                if not port:
+                    # 个别驱动要先配对完、隔一两秒才肯建服务，再来一轮
+                    btlink.enable_spp(mac)
+                    port = btlink.wait_spp_port(mac, before, timeout=8)
+                note = msg if ok_spp else "%s；%s" % (msg, msg_spp)
+                self._post(lambda n=note, p=port: self._finish(True, n, p))
+            except Exception as exc:      # noqa: BLE001
+                self._post(lambda e=exc: self._finish(False, "异常：%s" % e))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish(self, ok, msg, port=""):
+        self.busy = False
+        self.pair_btn.set_loading(False)
+
+        if not ok:
+            self._hint(msg, DANGER)
+            self.app._log("! 蓝牙：%s" % msg)
+            return
+
+        if not port:
+            self._hint("%s；但系统没分配 COM 口。到「设置 → 蓝牙和其他设备」"
+                       "删掉该设备重配一次，或换个 USB 蓝牙适配器。" % msg, WARN)
+            self.app._log("! 蓝牙：%s，未获得 COM 口" % msg)
+            self.app._refresh_ports()
+            return
+
+        self.app._log("蓝牙：%s，串口 %s" % (msg, port))
+        self.app._refresh_ports(prefer=port)
+        self._hint("已就绪：%s，正在连接…" % port, ACCENT)
+        self.after(400, self._close_and_connect)
+
+    def _close_and_connect(self):
+        self._on_close()
+        self.app.root.after(120, self.app._toggle_connect)
+
+    def _unpair(self):
+        if self.busy:
+            return
+        dev = self._selected()
+        if dev is None:
+            self._hint("先选一个设备", WARN)
+            return
+        if not dev.paired:
+            self._hint("%s 本来就没配对" % dev.name, WARN)
+            return
+        if not messagebox.askyesno(
+                "删除配对",
+                "确定删除「%s」的配对记录？\n删除后要重新配对才能连接。" % dev.name,
+                parent=self):
+            return
+        ok, msg = btlink.unpair(dev.mac)
+        self._hint(msg, ACCENT if ok else DANGER)
+        if ok:
+            self.app._log("蓝牙：已删除「%s」的配对" % dev.name)
+            self._refresh(inquiry=False)
+
+    # ---------- 关闭 ----------
+    def _hint(self, text, color=None):
+        self.hint.configure(text=text, fg=color or MUTED)
+
+    def _on_close(self):
+        if self._drain_job is not None:
+            try:
+                self.after_cancel(self._drain_job)
+            except tk.TclError:
+                pass
+            self._drain_job = None
+        self.app.bt_panel = None
+        try:
+            self.destroy()
+        except tk.TclError:
+            pass
+
+
 class MonitorApp:
     def __init__(self, root):
         self.root = root
@@ -410,6 +723,9 @@ class MonitorApp:
         self.gyro_anim_at = time.monotonic()
         self.gyro_drawn_state = ""
         self.active_baud = 0        # 当前端口实际使用的波特率
+        self.port_meta = {}         # 端口名 -> {"bluetooth": bool, "mac": str}
+        self.port_labels = []       # 下拉框显示文本，和设备名一一对应
+        self.bt_panel = None        # 蓝牙窗口单例（重复点击只抬到前面）
         self.pending_baud = 0       # 等待设备确认的目标波特率
         self.baud_deadline = 0.0
         self.radar_on = False       # 雷达模式是否开启
@@ -422,6 +738,8 @@ class MonitorApp:
         # ---- 配置与 AT 快捷指令：读不到就用默认值，绝不阻塞启动 ----
         self.cfg = appconfig.Config()
         self.at_items = atcmd.normalize(self.cfg.get("at.commands"))
+        # 上次连过的端口：刷新列表时优先选中，省得每次都翻下拉框
+        self.last_port = str(self.cfg.get("link.last_port", "") or "")
         self.at_btns = []
         self._at_tips = []
         self._save_job = None
@@ -544,11 +862,16 @@ class MonitorApp:
         ttk.Label(controls, text="串口", style="Muted.TLabel").pack(side="left")
         self.port_var = tk.StringVar()
         self.port_box = ttk.Combobox(controls, textvariable=self.port_var,
-                                     width=31, state="readonly")
+                                     width=32, state="readonly")
         self.port_box.pack(side="left", padx=(_sp(7), _sp(8)))
         self.refresh_btn = ActionButton(controls, text="刷新", variant="secondary",
                                         command=self._refresh_ports)
         self.refresh_btn.pack(side="left")
+        # 蓝牙入口：经典蓝牙必须先配对系统才会分配 COM 口，这里的弹窗把
+        # 「扫描 → 配对 → 启用串口服务 → 回填端口」一次做完，不用跳系统设置
+        self.bt_btn = ActionButton(controls, text="蓝牙", variant="secondary",
+                                   command=self._open_bt_panel)
+        self.bt_btn.pack(side="left", padx=(_sp(6), 0))
         ttk.Label(controls, text="波特率", style="Muted.TLabel").pack(
             side="left", padx=(_sp(20), 0))
         self.baud_var = tk.StringVar(value=DEFAULT_BAUD)
@@ -1337,15 +1660,92 @@ class MonitorApp:
         self.scroll.update_idletasks()
         self.scroll.yview_moveto(1.0)
 
-    def _refresh_ports(self):
+    def _refresh_ports(self, prefer=None):
+        """枚举串口，蓝牙口排在最前并加标注，并尽量恢复上次的选择。
+
+        标注只加在「设备名之后」，保证 ``sel.split()[0]`` 仍然是 COM 名 ——
+        _toggle_connect 依赖这个约定取设备，改格式会静默连错口。
+
+        prefer: 指定优先选中的端口（蓝牙配对成功后传入新生成的 COM 口）。
+        """
         if list_ports is None:
             self.port_box["values"] = []
+            self.port_labels = []
             self._log("未安装 pyserial，请先执行：pip install pyserial")
             return
-        ports = [f"{p.device}  {p.description}" for p in list_ports.comports()]
-        self.port_box["values"] = ports
-        if ports and not self.port_var.get():
-            self.port_box.current(0)
+
+        self.port_meta = {}
+        rows = []
+        for p in list_ports.comports():
+            hwid = p.hwid or ""
+            desc = p.description or ""
+            mac = btlink.mac_from_hwid(hwid) if btlink.AVAILABLE else ""
+            # 蓝牙 SPP 口的 hwid 一定含 BTHENUM；描述兜底是给老驱动/中文本地化留的
+            is_bt = ("BTHENUM" in hwid.upper()
+                     or "蓝牙" in desc or "Bluetooth" in desc)
+            is_usb = (not is_bt) and ("USB" in hwid.upper()
+                                      or any(k in desc.upper() for k in USB_HINTS))
+            self.port_meta[p.device] = {"bluetooth": is_bt, "mac": mac,
+                                        "usb": is_usb}
+            tag = "[蓝牙] " if is_bt else ""
+            # 蓝牙 > USB 串口 > 主板自带口：后两者都不是好选择，
+            # 但主机身上那个 16550 通信端口永远排第一会让人每次都要翻下拉框
+            rank = 0 if is_bt else (1 if is_usb else 2)
+            rows.append((rank, p.device, "%s  %s%s" % (p.device, tag, desc)))
+
+        rows.sort(key=lambda r: (r[0], r[1]))
+        devices = [r[1] for r in rows]
+        labels = [r[2] for r in rows]
+        self.port_labels = labels
+        self.port_box["values"] = labels
+
+        if not labels:
+            self.port_var.set("")
+            return
+
+        current = (self.port_var.get() or "").split()
+        current = current[0] if current else ""
+        target = ""
+        if prefer and prefer in devices:
+            target = prefer
+        elif current in devices:
+            target = current
+        elif self.last_port and self.last_port in devices:
+            target = self.last_port
+        else:
+            # 优先落到蓝牙口：这个程序的主场景就是连 HC-05
+            for dev in devices:
+                if self.port_meta.get(dev, {}).get("bluetooth"):
+                    target = dev
+                    break
+        self.port_var.set(labels[devices.index(target)] if target else labels[0])
+
+    def _open_bt_panel(self):
+        """打开蓝牙设备窗口：扫描 → 配对 → 启用串口服务 → 自动回填并连接。"""
+        if not btlink.AVAILABLE:
+            messagebox.showerror(
+                "蓝牙不可用",
+                "没能加载 Windows 蓝牙组件：\n%s\n\n"
+                "确认蓝牙服务已启动（services.msc → Bluetooth Support Service）后重试。"
+                % (btlink.IMPORT_ERROR or "未知原因"))
+            return
+        if not btlink.has_radio():
+            messagebox.showwarning(
+                "没有蓝牙适配器",
+                "本机没有可用的蓝牙适配器。\n"
+                "请打开蓝牙开关，或插上 USB 蓝牙适配器后重试。")
+            return
+
+        panel = getattr(self, "bt_panel", None)
+        if panel is not None:
+            try:
+                if panel.winfo_exists():
+                    panel.lift()
+                    panel.focus_force()
+                    return
+            except tk.TclError:
+                pass
+        self.bt_panel = BluetoothPanel(self)
 
     # ---------- 串口 ----------
     def _baud(self):
@@ -1383,6 +1783,10 @@ class MonitorApp:
         self.active_baud = baud
         self.alive = True
         self.gyro_link = True
+        # 记住这次连的口，下次启动直接落到它上面（蓝牙口的 COM 号通常固定）
+        if device != self.last_port:
+            self.last_port = device
+            self._queue_save("link.last_port", device)
         self.reader = threading.Thread(target=self._read_loop, daemon=True)
         self.reader.start()
         self.connect_btn.configure(text="等待应答")

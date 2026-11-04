@@ -34,7 +34,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: 离线自检（95 项协议与布局断言）
+      - name: 离线自检（113 项协议、布局与蓝牙断言）
         shell: pwsh
         run: |
           $out = & python selftest.py 2>&1 | Out-String
@@ -123,17 +123,23 @@ jobs:
             由 GitHub Actions 在 `windows-latest` 上自动构建，产物与标签提交一一对应。
 
             ### 新增
-            - **AT 快捷指令栏**：6 条可配置指令（`AT` / 版本 / 名称 / 地址 / 波特率 / 复位），
-              支持增删改、排序、恢复默认；独立的「AT 自动回车」开关与单条行尾策略
-              （跟随开关 / `\r\n` / `\r` / 不加），配置持久化到 `%APPDATA%\STM32Host\settings.json`
-            - **可拖拽的串口终端**：拖动分隔条调节日志高度，松手即记忆；跨 125% / 150% 缩放还原不错位
+            - **程序内蓝牙配对**：顶部「蓝牙」按钮打开设备窗口，扫描附近设备（能发现
+              还没配对的 HC-05）、按 PIN 静默配对、自动启用 SPP 服务、等系统分配 COM 口后
+              回填并连接，全程不用跳「设置 → 蓝牙和其他设备」
+            - **`btlink.py`**：纯 ctypes 封装 `BluetoothAPIs.dll` 与 `bthprops.cpl`，
+              零第三方依赖；配对函数在 bthprops 而非 BluetoothAPIs，这点很多实现会踩空
+            - **`tools/bt_selftest.py`**：蓝牙链路自检，只读不写，可单独运行
 
             ### 改进
-            - 发送后缀改为带「开 / 关」文字的胶囊开关，状态一眼可见
-            - 串口终端改为「左侧输入 + 日志 / 右侧操作栏」两栏布局，日志 9pt、默认高度提升约 60%
-            - 分隔条 9px → 5px 且不再使用强调色，中间区域更紧凑
-            - 右栏内容超高时自动滚动，任意窗口尺寸下控件不再被裁
-            - 快捷命令精简为 PING / GET / HELP（SYS / VER / RESET 仍可在输入框直接发送）
+            - 端口下拉框改为「蓝牙 > USB 串口 > 主板自带口」排序，蓝牙口带 `[蓝牙]` 标注；
+              原来主板 COM1 永远排第一，每次都要翻一格才能选到 CH340
+            - 记住上次连接的端口（`link.last_port`），启动自动选回
+            - 自检从 95 项扩展到 **113 项**，新增蓝牙地址解析、hwid 识别与端口排序断言
+
+            ### 已知限制
+            - 仅支持**经典蓝牙 SPP**（HC-05 / HC-06 / 开 SPP 的 ESP32）。
+              **ESP32-C3 只有 BLE**，不会生成 COM 口，暂不支持
+            - 配对链路未在真实模块上回归，首次使用请按 README「连接步骤 → 方式一」走一遍
 
             ### 安装
             1. 下载本页资产中的 `STM32Host-Setup-*.exe`（文件名带版本号）。
