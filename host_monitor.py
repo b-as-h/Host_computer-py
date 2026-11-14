@@ -45,12 +45,16 @@ import atcmd               # AT 快捷指令模型（纯标准库）
 import btlink              # 蓝牙扫描/配对/SPP 定位（纯 ctypes）
 
 BAUD_CHOICES = ["9600", "19200", "38400", "57600", "115200"]
-DEFAULT_BAUD = "9600"
+# 默认按 115200 启动：固件 USART1 与蓝牙模块的 UART 速率都必须同步改成
+# 115200，否则连上后收不到 +PONG（README 第七节有改法）。
+DEFAULT_BAUD = "115200"
 # 端口排序时用来认出「USB 转串口」的常见芯片描述：这类口才是开发板
 # 真正常用的，排在内置 16550 通信端口前面，省得每次开程序都要翻下拉框
 USB_HINTS = ("CH340", "CH341", "CH343", "CH9102", "CP210", "FTDI", "FT232",
              "PL2303", "USB-SERIAL", "USB SERIAL", "USB 串行")
 HISTORY = 120
+LOG_MAX_LINES = 2000        # 日志区最多保留的行数（原来只有 400 行）
+LOG_TRIM_LINES = 500        # 超出后一次删掉开头 500 行，避免每来一行就删一次
 FLOAT_KEYS = ("temp", "chip", "roll", "pitch")
 RADAR_MAX_CM = 200          # 雷达视图量程，超过的点压在边缘
 RADAR_DPS = 60              # 雷达扫描角速度，与固件默认一致
@@ -1075,7 +1079,14 @@ class MonitorApp:
         log_head = tk.Frame(bottom, bg=PANEL)
         log_head.pack(fill="x", pady=(0, _sp(6)))
         ttk.Label(log_head, text="串口终端", style="Section.TLabel").pack(side="left")
-        ttk.Label(log_head, text="> 发送   < 接收   ! 异常   ·   ↑/↓ 历史",
+        # 自动滚动：默认开；关掉后视图固定，新消息只追加不抢滚动位置
+        self.autoscroll_var = tk.BooleanVar(value=True)
+        self.autoscroll_chip = ToggleChip(log_head, text="自动滚动",
+                                          variable=self.autoscroll_var,
+                                          command=self._on_autoscroll_toggle)
+        self.autoscroll_chip.pack(side="left", padx=(_sp(10), 0))
+        Tip(self.autoscroll_chip, "开启：新消息自动滚到底\n关闭：视图固定，可翻看历史")
+        ttk.Label(log_head, text="> 发送   < 接收   ! 异常   ·   滚轮翻看",
                   style="Muted.TLabel").pack(side="right")
 
         # AT 快捷指令条：配置驱动，和固件快捷命令互不干扰
@@ -1113,6 +1124,8 @@ class MonitorApp:
         log_scroll.pack(side="right", fill="y")
         self.log.pack(side="left", fill="both", expand=True)
         self.log.configure(state="disabled")
+        # 鼠标停在日志区就能滚轮翻看，不必先点一下让它获得焦点
+        self.log.bind("<MouseWheel>", self._on_log_wheel)
 
         # 串口枚举放在最后：它可能触发日志输出，此时所有控件必须已就绪
         self._refresh_ports()
@@ -1752,7 +1765,7 @@ class MonitorApp:
         try:
             return int(self.baud_var.get())
         except ValueError:
-            return 9600
+            return int(DEFAULT_BAUD)
 
     def _on_baud_change(self, _event=None):
         # 连接中改波特率不能立刻重连：设备还在旧速率上，会直接失联。
@@ -2069,6 +2082,7 @@ class MonitorApp:
     def _clear_log(self):
         self.log.configure(state="normal")
         self.log.delete("1.0", "end")
+        self.log.see("end")
         self.log.configure(state="disabled")
 
     # ---------- 数据 ----------
@@ -2615,15 +2629,39 @@ class MonitorApp:
         c.create_text(_sp(8), _sp(14), text=f"{hi:.1f}", fill=MUTED, anchor="w")
         c.create_text(_sp(8), h - _sp(14), text=f"{lo:.1f}", fill=MUTED, anchor="w")
 
+    def _on_autoscroll_toggle(self):
+        """重新打开自动滚动时，立刻回到最新一行。"""
+        if self.autoscroll_var.get():
+            self.log.see("end")
+
+    def _on_log_wheel(self, event):
+        """鼠标停在日志区就能翻看历史，向上滚不会被新消息拉回底部。"""
+        self.log.yview_scroll(-1 if event.delta > 0 else 1, "units")
+        return "break"
+
     def _log(self, text):
         # 界面构建过程中可能就会打日志，此时 ts_var 还不存在
         if getattr(self, "ts_var", None) is not None and self.ts_var.get():
             text = time.strftime("%H:%M:%S ") + text
+
+        follow_var = getattr(self, "autoscroll_var", None)
+        following = True if follow_var is None else bool(follow_var.get())
+        # 关键：只有视图本来就在底部时才跟随。用户往上翻之后，
+        # 新消息继续追加，但不会把滚动位置抢回末尾。
+        # 窗口还没映射时 yview 不可靠，按“在底部”处理，保证启动日志能跟上。
+        try:
+            at_bottom = (not self.log.winfo_ismapped()) or self.log.yview()[1] >= 0.999
+        except tk.TclError:
+            at_bottom = True
+
         self.log.configure(state="normal")
         self.log.insert("end", text + "\n")
-        if int(self.log.index("end-1c").split(".")[0]) > 400:
-            self.log.delete("1.0", "100.0")
-        self.log.see("end")
+        lines = int(self.log.index("end-1c").split(".")[0])
+        # 只在“跟随中且停在底部”时修剪，避免把正在翻看的历史删掉
+        if following and at_bottom and lines > LOG_MAX_LINES:
+            self.log.delete("1.0", "%d.0" % (LOG_TRIM_LINES + 1))
+        if following and at_bottom:
+            self.log.see("end")
         self.log.configure(state="disabled")
 
     def on_close(self):

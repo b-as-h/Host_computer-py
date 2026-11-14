@@ -79,6 +79,9 @@ def main():
     app.active_baud = 9600
     c = Checker()
 
+    print("[0] 默认参数")
+    c.check("默认波特率 115200", hm.DEFAULT_BAUD == "115200", hm.DEFAULT_BAUD)
+
     print("[1] 发送侧：命令拼装（与 bt.c 的 bt_exec 对齐）")
     app.crlf_var.set(True)
     cases = [
@@ -153,6 +156,9 @@ def main():
     c.check("在旧链路上发 BAUD", app.ser.written and app.ser.written[-1] == b"BAUD,115200\r\n",
             app.ser.written)
     c.check("挂起等待确认", app.pending_baud == 115200, app.pending_baud)
+    # 只验证“确认后清除挂起”；真正的断开重连会换掉 FakeSerial，
+    # 影响后面的日志/AT 测试，这里用空实现挡掉定时器。
+    app._reconnect_at_target = lambda: None
     app._handle_line("+OK,BAUD")
     c.check("确认后清除挂起", app.pending_baud == 0, app.pending_baud)
 
@@ -219,7 +225,7 @@ def main():
                 and (ints["gpu"] == -1 or 0 <= ints["gpu"] <= 100), ints)
         c.check("内存总量为正", ints["rt"] > 0, ints["rt"])
 
-    c.check("PC 帧长度适合 9600 波特率", len(payload.encode()) <= 120,
+    c.check("PC 帧不超过 120 字节（固件按 128 缓冲）", len(payload.encode()) <= 120,
             len(payload.encode()))
 
     # ---------- 固件不认识 PC 命令时的降噪 ----------
@@ -244,6 +250,26 @@ def main():
     app._handle_line("-ERR,UNKNOWN")
     txt = app.log.get("1.0", "end")
     c.check("未推送时 -ERR 照常记录", "< -ERR,UNKNOWN" in txt, txt.strip())
+
+    print("[7.5] 日志区：历史保留与手动翻看")
+    app._clear_log()
+    app.autoscroll_var.set(True)
+    for i in range(460):
+        app._log("L%03d" % i)
+    root.update()
+    txt = app.log.get("1.0", "end")
+    c.check("日志保留 460 行历史", "L000" in txt and "L459" in txt,
+            len(txt.splitlines()))
+    app.log.yview_moveto(0.0)
+    root.update()
+    top_before = app.log.yview()[0]
+    app._log("NEW-LINE")
+    root.update()
+    c.check("翻到顶部后不被自动拉回底部",
+            app.log.yview()[0] <= top_before + 0.01,
+            (top_before, app.log.yview()))
+    app.autoscroll_var.set(True)
+    app._clear_log()
 
     print("[8] 3D 姿态仪：数据触发、缓动、异常与断连")
     app.gyro_link = True

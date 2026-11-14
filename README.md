@@ -6,11 +6,11 @@
 - 固件协议：`Core/Src/bt.c`、`Core/Inc/bt.h`（固件工程不在本仓库）
 - 界面技术：Python + Tkinter，无前端构建步骤
 - 显示适配：Windows Per-Monitor V2 DPI，1080p / 2K 自适应
-- 当前版本：**v1.11.0**
-- 安装包：[STM32Host-Setup-1.11.0.exe](https://github.com/b-as-h/Host_computer-py/releases/download/v1.11.0/STM32Host-Setup-1.11.0.exe)（约 13 MB）
-- 绿色版：[STM32Host.exe](https://github.com/b-as-h/Host_computer-py/releases/download/v1.11.0/STM32Host.exe)（约 11 MB，免安装）
-- 校验文件：[SHA256SUMS.txt](https://github.com/b-as-h/Host_computer-py/releases/download/v1.11.0/SHA256SUMS.txt)
-- 发布说明：<https://github.com/b-as-h/Host_computer-py/releases/tag/v1.11.0>
+- 当前版本：**v1.12.0**
+- 安装包：[STM32Host-Setup-1.12.0.exe](https://github.com/b-as-h/Host_computer-py/releases/download/v1.12.0/STM32Host-Setup-1.12.0.exe)（约 13 MB）
+- 绿色版：[STM32Host.exe](https://github.com/b-as-h/Host_computer-py/releases/download/v1.12.0/STM32Host.exe)（约 11 MB，免安装）
+- 校验文件：[SHA256SUMS.txt](https://github.com/b-as-h/Host_computer-py/releases/download/v1.12.0/SHA256SUMS.txt)
+- 发布说明：<https://github.com/b-as-h/Host_computer-py/releases/tag/v1.12.0>
 
 ---
 
@@ -41,7 +41,7 @@
 ### 方式一：安装包（推荐）
 
 1. 打开 [Releases](https://github.com/b-as-h/Host_computer-py/releases/latest)，下载
-   `STM32Host-Setup-1.11.0.exe`。
+   `STM32Host-Setup-1.12.0.exe`。
 2. 双击安装包。当前安装包未购买代码签名证书，Windows SmartScreen 可能提示
    “Windows 已保护你的电脑”，点 **更多信息 → 仍要运行** 即可。
 3. 选择安装位置。默认安装到 `%LOCALAPPDATA%\Programs\STM32Host`，
@@ -121,7 +121,7 @@ python tools/capture_screenshots.py
 
 已发布仓库：<https://github.com/b-as-h/Host_computer-py>
 
-构建环境：Windows 10/11 64 位、Python 3.9+ 64 位、Inno Setup 7。
+构建环境：Windows 10/11 64 位、Python 3.9+ 64 位、Inno Setup 6.3+ 或 7。
 
 ```bat
 python -m pip install -r requirements-dev.txt
@@ -131,9 +131,9 @@ installer\build_installer.bat
 脚本依次完成：
 
 1. 安装 pyserial 与 PyInstaller；
-2. PyInstaller 生成 `dist\STM32Host.exe`（单文件，含图标与 1.11.0 版本信息）；
+2. PyInstaller 生成 `dist\STM32Host.exe`（单文件，含图标与 1.12.0 版本信息）；
 3. Inno Setup 编译 `installer\STM32Host.iss`，生成
-   `dist\STM32Host-Setup-1.11.0.exe`。
+   `dist\STM32Host-Setup-1.12.0.exe`。
 
 只重新生成 exe：
 
@@ -149,27 +149,30 @@ pyinstaller --noconfirm --clean --onefile --windowed --icon app.ico ^
 挂到 Release」，不需要本地装 Python 或 Inno Setup：
 
 ```bat
-git tag v1.11.0
-git push origin v1.11.0
+git tag v1.12.0
+git push origin v1.12.0
 ```
 
 工作流文件：`.github/workflows/release.yml`。推送到 `main` 时只构建并存 14 天产物（不发布），
 所以改完代码可以先看 Actions 是否绿，再决定打标签。产物附带 `SHA256SUMS.txt`。
 
-> 本机手动构建仍然可用（见上），只是需要自己装 Inno Setup 7。
+> 本机手动构建仍然可用（见上），只是需要自己装 Inno Setup 6.3+ 或 7。
 
-**工具选择**：PyInstaller 负责把 Python 程序和运行时打成单文件 exe；Inno Setup 7 负责安装层。
+**工具选择**：PyInstaller 负责把 Python 程序和运行时打成单文件 exe；Inno Setup 负责安装层。
 相比 ZIP 或自解压包，Inno Setup 能生成标准 Windows 安装向导、开始菜单/桌面快捷方式、
 “应用和功能”卸载项和版本信息，并且默认按当前用户安装，不触发 UAC。
 
-> Inno Setup 7 下载：<https://jrsoftware.org/isdl.php>。安装脚本使用
+> Inno Setup 下载：<https://jrsoftware.org/isdl.php>。安装脚本使用
 > `PrivilegesRequired=lowest`，默认目录为 `%LOCALAPPDATA%\Programs\STM32Host`；
-> `installer\build_installer.bat` 会自动查找 `ISCC.exe`。
+> `installer\build_installer.bat` 会自动查找 Inno Setup 6 / 7 的 `ISCC.exe`。
 >
 > 安装包未做代码签名，SmartScreen 会提示未知发布者；正式分发前建议购买代码签名证书。
 >
-> conda 环境打包时，`_tkinter.pyd` 依赖的 `tcl90.dll` / `tcl9tk90.dll` 不会被自动收集，
-> 还需按原环境手动追加 `--add-binary "%CONDA_PREFIX%\Library\bin\..."`。
+> conda 环境打包时，`_ctypes.pyd` 依赖的 `ffi.dll` 和 `_tkinter.pyd` 依赖的
+> `tcl90.dll` / `tcl9tk90.dll` / `libtommath.dll` 不会被自动收集（旧版 conda 是
+> `tcl86t.dll` / `tk86t.dll`，按本机实际文件名）。需用
+> `--add-binary "%CONDA_PREFIX%\Library\bin\xxx.dll;."` 逐个补齐，否则启动会报
+> `DLL load failed while importing _ctypes / _tkinter`。
 > pyserial 使用 `--collect-all serial`，否则 exe 里可能检测不到串口。
 > 若 conda 的 `_ctypes.pyd` 依赖独立 `ffi.dll`，也要一并加入，否则 `sysinfo` 会报采集模块不可用。
 
@@ -191,8 +194,8 @@ git push origin v1.11.0
 | `test-results/` | 最近一次测试的 JSON、测试台和阶段截图 |
 | `requirements.txt` | 运行依赖（pyserial） |
 | `requirements-dev.txt` | 开发与打包依赖（PyInstaller） |
-| `installer/STM32Host.iss` | Inno Setup 7 安装脚本（中文向导、快捷方式、卸载项） |
-| `installer/version_info.txt` | exe 文件版本信息（1.11.0） |
+| `installer/STM32Host.iss` | Inno Setup 6.3+ 安装脚本（中文向导、快捷方式、卸载项） |
+| `installer/version_info.txt` | exe 文件版本信息（1.12.0） |
 | `installer/build_installer.bat` | 一键构建 exe 与安装包 |
 | `installer/ChineseSimplified.isl` | 简体中文安装向导语言包（官方 Inno 不保证自带，随仓库携带） |
 | `.github/workflows/release.yml` | CI：推标签自动构建并发布到 Releases |
@@ -261,7 +264,7 @@ git push origin v1.11.0
 | AT 指令行 | 串口终端卡片内：6 个可配置 AT 快捷按钮、**AT 自动回车**开关、**管理**入口 |
 | 发送栏 | 命令输入框（回车即发），只占左列宽度；发送 / 清空按钮在右侧操作栏 |
 | 终端侧栏 | **CRLF / HEX / 时间戳 / 定时** 四个胶囊开关（2×2 排布，开 / 关直接写在按钮上）、定时间隔、发送命令、清空 |
-| 日志 | 收发记录，`>` 为发送、`<` 为接收、`!` 为异常；等宽 9pt，默认占满终端卡片剩余高度 |
+| 日志 | 收发记录，`>` 为发送、`<` 为接收、`!` 为异常；标题行有 **自动滚动** 开关，默认保留最近 2000 行，向上翻看时不会被新消息拉回底部 |
 
 界面使用统一深色视觉规范，连接状态、按钮悬停、等待应答、操作成功/失败都有对应反馈。窗口会根据屏幕工作区和系统 DPI 自动选择 0.9–1.5 倍 UI 缩放，2K 与 1080p 下不会出现整体位图拉伸。
 
@@ -381,10 +384,11 @@ python selftest.py
 | 命令历史 | 输入框内按 `↑` / `↓` 翻历史命令 |
 | 快捷命令 | PING / GET / HELP 三个按钮，等价于在输入框里输入；SYS / VER / RESET 直接在输入框输入即可 |
 | PONG 超时 | 连接后 1.5 秒没收到 `+PONG`，状态栏变黄提示检查供电和波特率 |
+| 自动滚动 | 默认「开」，只在视图位于底部时跟随新消息；鼠标向上滚或点成「关」后视图固定，可翻看历史，点回「开」立即跳到最新一行。历史保留最近 2000 行 |
 
 ## 六、蓝牙协议
 
-USART1，8N1。命令以 `\n` 结尾，应答以 `\r\n` 结尾，全部为 ASCII。
+USART1，8N1。命令以 `\r\n` 结尾（固件同时兼容 `\r`、`\n`），应答以 `\r\n` 结尾，全部为 ASCII。
 
 | 命令 | 说明 | 示例应答 |
 |---|---|---|
@@ -396,7 +400,7 @@ USART1，8N1。命令以 `\n` 结尾，应答以 `\r\n` 结尾，全部为 ASCII
 | `PC,cpu=..,mem=..,...` | 上位机每秒推送的电脑状态帧（见下） | 固件支持后无应答 |
 | `LOCK,<0/1>` | 舵机解锁 / 锁定；锁定会退出雷达模式 | `+OK` |
 | `STREAM,<0/1>[,<ms>]` | 开关周期遥测，周期 100~5000ms | `+OK,STREAM=1` |
-| `BAUD,<rate>` | 切换波特率，掉电恢复 9600 | `+OK,BAUD` |
+| `BAUD,<rate>` | 切换波特率，掉电恢复固件默认值（本工程 115200） | `+OK,BAUD` |
 | `SYS` | 复位原因、运行时间、内存、负载、波特率 | `+SYS,rst=POR,up=123,...` |
 | `VER` | 固件版本 | `+VER,BASH-STM32,1.4.0` |
 | `HELP` | 命令列表 | `+HELP,...` |
@@ -458,7 +462,7 @@ PC,cpu=21,mem=63,gpu=6,ct=-1,gt=-1,cf=4007,gc=-1,ru=101,rt=160,dn=7,up=12,fps=75
 | `dn` `up` | 网络下行 / 上行 | KB/s |
 | `fps` | 桌面合成帧率 | 帧/秒 |
 
-整帧约 80 字节，9600 波特率下传输约 83 ms，1 s 一帧绰绰有余。
+整帧约 80 字节，115200 波特率下传输约 7 ms，1 s 一帧绰绰有余。
 
 > **当前固件还不认识 `PC` 命令**，会回 `-ERR,UNKNOWN`。上位机在推送期间会自动吞掉这些回复（只提示一次），不影响其它功能。
 > 要让 STM32 真正显示，需要在 `bt.c` 的 `bt_exec()` 里加一个 `PC` 分支来解析这些字段。
@@ -466,7 +470,7 @@ PC,cpu=21,mem=63,gpu=6,ct=-1,gt=-1,cf=4007,gc=-1,ru=101,rt=160,dn=7,up=12,fps=75
 `SYS` 应答：
 
 ```
-+SYS,rst=POR,up=123,flash=34964,ram=5856,stack=312,loop=1520,lmax=12,baud=9600
++SYS,rst=POR,up=123,flash=34964,ram=5856,stack=312,loop=1520,lmax=12,baud=115200
 ```
 
 | 字段 | 含义 |
@@ -478,20 +482,29 @@ PC,cpu=21,mem=63,gpu=6,ct=-1,gt=-1,cf=4007,gc=-1,ru=101,rt=160,dn=7,up=12,fps=75
 | `loop` `lmax` | 主循环频率（次/秒）、最近 1 秒内最长单次耗时（ms） |
 | `baud` | 当前串口波特率 |
 
-## 七、修改波特率
+## 七、波特率
 
-固件上电默认 **9600**。两侧速率必须一致，否则收不到任何数据。
+上位机默认 **115200**（`host_monitor.py` 顶部 `DEFAULT_BAUD`），8N1、无流控。
+STM32 上电也必须工作在 115200，否则连上后只会看到 `> PING`，收不到 `+PONG`。
 
-### 情况 A：设备已经是目标速率（例如模块出厂就配成 115200）
+三处速率要同时对上：
 
-直接在顶部下拉框选 115200 → 点「连接」即可。
+| 位置 | 怎么改 |
+|---|---|
+| 上位机 | 顶部下拉框选择；默认值在 `DEFAULT_BAUD` |
+| STM32 固件 | 江科大 `Serial.c`：`USART_InitStructure.USART_BaudRate = 115200;`；HAL 工程改 `huart1.Init.BaudRate` |
+| 蓝牙模块 | HC-05 在 AT 模式下发 `AT+UART=115200,0,0`；HC-06 发 `AT+BAUD8`，断电重启后生效 |
 
-### 情况 B：设备还是 9600，想改成 115200
+> 模块的 UART 速率和手机端无关：手机走无线侧，单片机走模块的串口侧，两侧各配各的。
 
-不要直接改下拉框重连——设备还在旧速率上，必然失联。正确顺序：
+### 设备还是 9600，怎么改成 115200
+
+不要直接在下拉框改完就重连 —— 设备还在旧速率上，必然失联。正确顺序：
 
 ```
-连接中把下拉框切到 115200
+上位机下拉框临时选 9600 → 点「连接」（先按设备现有速率搭上话）
+        ↓
+把下拉框切到 115200
         ↓
 点「同步设备速率」
         ↓
@@ -506,14 +519,14 @@ PC,cpu=21,mem=63,gpu=6,ct=-1,gt=-1,cf=4007,gc=-1,ru=101,rt=160,dn=7,up=12,fps=75
 
 - 只有收到 `+OK,BAUD` 才会重连；
 - 2 秒内没确认，下拉框自动退回原速率，不会把链路弄断；
-- 波特率不写 Flash，掉电后固件恢复 9600。
+- 波特率不写 Flash，掉电后固件恢复自己初始化的值（本工程 115200）。
 
 ## 八、常见问题
 
 | 现象 | 原因与处理 |
 |---|---|
 | 下拉框里没有串口 | 模块没配对成功，或 CH340 驱动没装 |
-| 连上但只有 `> PING` 没有回 | 波特率不一致；或 PA9/PA10 接反；或模块没上电 |
+| 连上但只有 `> PING` 没有回 | 两侧波特率不一致（默认 115200）；或 PA9/PA10 接反；或模块没上电 |
 | 状态栏显示「已连接，无应答」 | 同上，1.5 秒内没收到 `+PONG` |
 | `SERVO` 返回 `-ERR,LOCKED` | 舵机处于锁定状态，先发 `LOCK,0` |
 | `-ERR,BAUD` | 波特率不在 9600/19200/38400/57600/115200 之内 |
@@ -529,12 +542,13 @@ PC,cpu=21,mem=63,gpu=6,ct=-1,gt=-1,cf=4007,gc=-1,ru=101,rt=160,dn=7,up=12,fps=75
 - 新增命令：固件 `Core/Src/bt.c` 的 `bt_exec()` 加分支；上位机可改 `host_monitor.py` 顶部的 `QUICK_COMMANDS`，或在界面里用「AT 指令 → 管理」加按钮。
 - 改 AT 指令默认表：`atcmd.py` 的 `DEFAULTS`；改配置目录：环境变量 `STM32HOST_CONFIG_DIR`。
 - 改界面配色：`host_monitor.py` 顶部的 `BG` / `PANEL` / `ACCENT` 常量。
-- 改默认波特率：固件 `Core/Src/usart.c` 的 `huart1.Init.BaudRate`，以及上位机 `DEFAULT_BAUD`。
+- 改默认波特率：上位机 `DEFAULT_BAUD`；固件初始化 USART1 的那句（江科大 `Serial.c` 的 `USART_BaudRate`，HAL 的 `huart1.Init.BaudRate`）；蓝牙模块用 AT 命令。
 
 ## 十、更新记录
 
 | 版本 | 内容 |
 |---|---|
+| v1.12.0 | 上位机默认波特率由 9600 改为 **115200**（`DEFAULT_BAUD`），README 第七节重写为「上位机 / 固件 / 蓝牙模块三处速率对齐」的说明；同步修正 `SYS` 示例与 `PC` 帧传输耗时；串口终端新增 **自动滚动** 开关，仅在视图位于底部时跟随新消息，向上翻看不会被拉回，历史行数由 400 提升到 2000；自检扩展到 116 项。**升级注意**：固件 USART1 与蓝牙模块 UART 也要改成 115200，否则连上后只有 `> PING` 没有 `+PONG` |
 | v1.11.0 | 新增**程序内蓝牙配对**：顶部「蓝牙」按钮打开设备窗口，扫描附近设备（含未配对的 HC-05）、按 PIN 静默配对、自动启用 SPP 服务、等系统分配 COM 口后回填并连接，全程不用跳系统设置；新增 `btlink.py`（纯 ctypes 封装 BluetoothAPIs.dll 与 bthprops.cpl，零第三方依赖）与 `tools/bt_selftest.py`；端口下拉框改为「蓝牙 > USB 串口 > 主板口」排序并给蓝牙口加 `[蓝牙]` 标注，自动选回上次连接的端口（`link.last_port`）；自检扩展到 113 项 |
 | v1.10.0 | 发送后缀改为带「开 / 关」文字的胶囊开关，状态一眼可见；新增可配置 **AT 快捷指令栏**（默认 6 条、增删改、排序、恢复默认、独立「AT 自动回车」开关、行尾策略、悬停提示）；主区与终端之间改为**可拖拽分隔条**并记住高度；快捷命令精简为 PING / GET / HELP；新增 `appconfig.py` / `atcmd.py` 两个纯逻辑模块，配置原子写盘并在损坏时自动隔离；关闭时停止性能采集线程；自检扩展到 95 项；终端卡片改为「左侧输入 + 日志 / 右侧操作栏」两栏布局，发送与清空按钮、四个开关竖向收纳，日志字号降到 9pt 且默认高度提升到 300px；分隔条 9px→5px 且不再使用强调色；右栏内容超高时可滚动，任意窗口尺寸下不再出现控件被裁 |
 | v1.9.0 | 新增 **Inno Setup 7 一键安装包**（中文向导、开始菜单/桌面快捷方式、标准卸载项、按用户安装）；exe 写入 1.9.0 文件版本信息；补充 `requirements.txt` / `requirements-dev.txt` 与可复现构建脚本；清理 `__pycache__`、旧构建临时目录和误建空文件；README 增加安装、卸载、构建与 SmartScreen 说明 |
